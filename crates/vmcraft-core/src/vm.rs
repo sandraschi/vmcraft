@@ -49,6 +49,65 @@ fn down(tool: &str, reason: &str) -> Value {
     json!({"tool": tool, "status": "down", "reason": reason})
 }
 
+fn gate(tool: &str, confirm: bool) -> Option<Value> {
+    if confirm || mutate_allowed() {
+        None
+    } else {
+        Some(
+            json!({"tool": tool, "status": "error", "reason": "mutating op requires --yes or VMCRAFT_ALLOW_MUTATE=1"}),
+        )
+    }
+}
+
+fn valid_name(value: &str, max: usize) -> bool {
+    let t = value.trim();
+    if t.is_empty() || t.chars().count() > max {
+        return false;
+    }
+    t.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || c == ' '
+            || c == '_'
+            || c == '-'
+            || c == '.'
+            || c == '('
+            || c == ')'
+    })
+}
+
+fn valid_token(value: &str, max: usize) -> bool {
+    let t = value.trim();
+    if t.is_empty() || t.chars().count() > max {
+        return false;
+    }
+    t.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
+fn valid_ipv4(value: &str) -> bool {
+    let parts: Vec<&str> = value.trim().split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    parts.iter().all(|p| {
+        !p.is_empty()
+            && p.len() <= 3
+            && p.chars().all(|c| c.is_ascii_digit())
+            && p.parse::<u8>().is_ok()
+    })
+}
+
+async fn run_vbox(args: &[&str], secs: u64) -> Result<String, String> {
+    let mut last_err = String::from("no VBoxManage candidate");
+    for cand in vboxmanage_candidates() {
+        match run_capture(&cand, args, secs).await {
+            Ok(out) => return Ok(out),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
 pub async fn status() -> Value {
     let vbox = vbox_probe().await;
     json!({
@@ -150,7 +209,7 @@ pub async fn snapshot_list(vm: &str) -> Value {
 
 pub async fn network_list() -> Value {
     for cand in vboxmanage_candidates() {
-        match run_capture(&cand, &["list", "hostonlynets"], 15).await {
+        match run_capture(&cand, &["list", "hostonlyifs"], 15).await {
             Ok(text) => {
                 return json!({"tool": "network_list", "status": "ok", "raw": text.chars().take(4000).collect::<String>()});
             }
@@ -177,6 +236,281 @@ pub async fn host_info() -> Value {
         }
     }
     down("host_info", "VBoxManage not runnable")
+}
+
+pub async fn vm_create(vm: &str, ostype: &str, memory_mb: u32, confirm: bool) -> Value {
+    if let Some(g) = gate("vm_create", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) {
+        return json!({"tool": "vm_create", "status": "error", "reason": "vm must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    if !valid_token(ostype, 32) {
+        return json!({"tool": "vm_create", "status": "error", "reason": "ostype must be 1..32 chars [A-Za-z0-9_.-] e.g. Ubuntu_64"});
+    }
+    if !(512..=65536).contains(&memory_mb) {
+        return json!({"tool": "vm_create", "status": "error", "reason": "memory_mb must be 512..65536"});
+    }
+    let name = vm.trim();
+    let mem = memory_mb.to_string();
+    match run_vbox(
+        &[
+            "createvm",
+            "--name",
+            name,
+            "--ostype",
+            ostype.trim(),
+            "--register",
+        ],
+        60,
+    )
+    .await
+    {
+        Ok(out) => match run_vbox(&["modifyvm", name, "--memory", &mem, "--cpus", "2"], 60).await {
+            Ok(modify) => {
+                json!({"tool": "vm_create", "status": "ok", "vm": name, "ostype": ostype.trim(), "memory_mb": memory_mb, "create": out.chars().take(1000).collect::<String>(), "modify": modify.chars().take(1000).collect::<String>()})
+            }
+            Err(e) => {
+                json!({"tool": "vm_create", "status": "error", "reason": format!("modifyvm failed: {e}"), "vm": name})
+            }
+        },
+        Err(e) => json!({"tool": "vm_create", "status": "error", "reason": e, "vm": name}),
+    }
+}
+
+pub async fn vm_start(vm: &str, confirm: bool) -> Value {
+    if let Some(g) = gate("vm_start", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) {
+        return json!({"tool": "vm_start", "status": "error", "reason": "vm must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    match run_vbox(&["startvm", vm.trim(), "--type", "headless"], 60).await {
+        Ok(out) => {
+            json!({"tool": "vm_start", "status": "ok", "vm": vm.trim(), "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => json!({"tool": "vm_start", "status": "error", "reason": e, "vm": vm.trim()}),
+    }
+}
+
+pub async fn vm_stop(vm: &str, force: bool, confirm: bool) -> Value {
+    if let Some(g) = gate("vm_stop", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) {
+        return json!({"tool": "vm_stop", "status": "error", "reason": "vm must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    let action = if force { "poweroff" } else { "acpipowerbutton" };
+    match run_vbox(&["controlvm", vm.trim(), action], 60).await {
+        Ok(out) => {
+            json!({"tool": "vm_stop", "status": "ok", "vm": vm.trim(), "action": action, "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => json!({"tool": "vm_stop", "status": "error", "reason": e, "vm": vm.trim()}),
+    }
+}
+
+pub async fn vm_delete(vm: &str, confirm: bool) -> Value {
+    if let Some(g) = gate("vm_delete", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) {
+        return json!({"tool": "vm_delete", "status": "error", "reason": "vm must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    match run_vbox(&["unregistervm", vm.trim(), "--delete"], 60).await {
+        Ok(out) => {
+            json!({"tool": "vm_delete", "status": "ok", "vm": vm.trim(), "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => json!({"tool": "vm_delete", "status": "error", "reason": e, "vm": vm.trim()}),
+    }
+}
+
+pub async fn snapshot_create(vm: &str, snap: &str, confirm: bool) -> Value {
+    if let Some(g) = gate("snapshot_create", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) || !valid_name(snap, 64) {
+        return json!({"tool": "snapshot_create", "status": "error", "reason": "vm and snap must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    match run_vbox(&["snapshot", vm.trim(), "take", snap.trim()], 60).await {
+        Ok(out) => {
+            json!({"tool": "snapshot_create", "status": "ok", "vm": vm.trim(), "snap": snap.trim(), "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => json!({"tool": "snapshot_create", "status": "error", "reason": e}),
+    }
+}
+
+pub async fn snapshot_restore(vm: &str, snap: &str, confirm: bool) -> Value {
+    if let Some(g) = gate("snapshot_restore", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) || !valid_name(snap, 64) {
+        return json!({"tool": "snapshot_restore", "status": "error", "reason": "vm and snap must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    match run_vbox(&["snapshot", vm.trim(), "restore", snap.trim()], 60).await {
+        Ok(out) => {
+            json!({"tool": "snapshot_restore", "status": "ok", "vm": vm.trim(), "snap": snap.trim(), "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => json!({"tool": "snapshot_restore", "status": "error", "reason": e}),
+    }
+}
+
+pub async fn snapshot_delete(vm: &str, snap: &str, confirm: bool) -> Value {
+    if let Some(g) = gate("snapshot_delete", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) || !valid_name(snap, 64) {
+        return json!({"tool": "snapshot_delete", "status": "error", "reason": "vm and snap must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    match run_vbox(&["snapshot", vm.trim(), "delete", snap.trim()], 60).await {
+        Ok(out) => {
+            json!({"tool": "snapshot_delete", "status": "ok", "vm": vm.trim(), "snap": snap.trim(), "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => json!({"tool": "snapshot_delete", "status": "error", "reason": e}),
+    }
+}
+
+pub async fn network_create(ip: &str, netmask: &str, confirm: bool) -> Value {
+    if let Some(g) = gate("network_create", confirm) {
+        return g;
+    }
+    if !valid_ipv4(ip) || !valid_ipv4(netmask) {
+        return json!({"tool": "network_create", "status": "error", "reason": "ip and netmask must be IPv4 dotted-quad"});
+    }
+    let created = match run_vbox(&["hostonlyif", "create"], 60).await {
+        Ok(out) => out,
+        Err(e) => return json!({"tool": "network_create", "status": "error", "reason": e}),
+    };
+    let iface = created
+        .lines()
+        .find_map(|l| {
+            let t = l.trim();
+            if t.starts_with('\'') && t.contains("was successfully created") {
+                Some(
+                    t.trim_matches('\'')
+                        .split("' was")
+                        .next()
+                        .unwrap_or("")
+                        .to_string(),
+                )
+            } else if t.contains("VirtualBox Host-Only") {
+                Some(t.trim_matches(|c| c == '\'' || c == '"').to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+    if iface.is_empty() {
+        return json!({"tool": "network_create", "status": "error", "reason": "created but could not parse interface name", "raw": created.chars().take(1000).collect::<String>()});
+    }
+    match run_vbox(
+        &[
+            "hostonlyif",
+            "ipconfig",
+            iface.trim(),
+            "--ip",
+            ip.trim(),
+            "--netmask",
+            netmask.trim(),
+        ],
+        60,
+    )
+    .await
+    {
+        Ok(out) => {
+            json!({"tool": "network_create", "status": "ok", "iface": iface.trim(), "ip": ip.trim(), "netmask": netmask.trim(), "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => {
+            json!({"tool": "network_create", "status": "error", "reason": e, "iface": iface.trim()})
+        }
+    }
+}
+
+pub async fn network_remove(net: &str, confirm: bool) -> Value {
+    if let Some(g) = gate("network_remove", confirm) {
+        return g;
+    }
+    if !valid_name(net, 64) {
+        return json!({"tool": "network_remove", "status": "error", "reason": "net must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    match run_vbox(&["hostonlyif", "remove", net.trim()], 60).await {
+        Ok(out) => {
+            json!({"tool": "network_remove", "status": "ok", "net": net.trim(), "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => json!({"tool": "network_remove", "status": "error", "reason": e}),
+    }
+}
+
+pub async fn disk_list() -> Value {
+    match run_vbox(&["list", "hdds"], 15).await {
+        Ok(out) => {
+            json!({"tool": "disk_list", "status": "ok", "raw": out.chars().take(4000).collect::<String>()})
+        }
+        Err(e) => down("disk_list", &e),
+    }
+}
+
+pub async fn disk_create(path: &str, size_gb: u32, confirm: bool) -> Value {
+    if let Some(g) = gate("disk_create", confirm) {
+        return g;
+    }
+    let p = path.trim();
+    if p.is_empty() || p.chars().count() > 260 || !p.to_ascii_lowercase().ends_with(".vdi") {
+        return json!({"tool": "disk_create", "status": "error", "reason": "path must be 1..260 chars ending in .vdi"});
+    }
+    if !(1..=2000).contains(&size_gb) {
+        return json!({"tool": "disk_create", "status": "error", "reason": "size_gb must be 1..2000"});
+    }
+    if let Some(parent) = std::path::Path::new(p).parent() {
+        if !parent.as_os_str().is_empty() && !parent.is_dir() {
+            return json!({"tool": "disk_create", "status": "error", "reason": "parent directory does not exist"});
+        }
+    }
+    let size_mb = (size_gb as u64) * 1024;
+    let size_str = size_mb.to_string();
+    match run_vbox(
+        &["createmedium", "disk", "--filename", p, "--size", &size_str],
+        120,
+    )
+    .await
+    {
+        Ok(out) => {
+            json!({"tool": "disk_create", "status": "ok", "path": p, "size_gb": size_gb, "output": out.chars().take(1000).collect::<String>()})
+        }
+        Err(e) => json!({"tool": "disk_create", "status": "error", "reason": e}),
+    }
+}
+
+pub async fn vm_shot(vm: &str, out: &str) -> Value {
+    if !valid_name(vm, 64) {
+        return json!({"tool": "vm_shot", "status": "error", "reason": "vm must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    let o = out.trim();
+    if o.is_empty() || o.chars().count() > 260 || !o.to_ascii_lowercase().ends_with(".png") {
+        return json!({"tool": "vm_shot", "status": "error", "reason": "out must be 1..260 chars ending in .png"});
+    }
+    if let Some(parent) = std::path::Path::new(o).parent() {
+        if !parent.as_os_str().is_empty() && std::fs::create_dir_all(parent).is_err() {
+            return json!({"tool": "vm_shot", "status": "error", "reason": "cannot create output dir"});
+        }
+    }
+    match run_vbox(&["controlvm", vm.trim(), "screenshotpng", o], 30).await {
+        Ok(raw) => match std::fs::read(o) {
+            Ok(bytes) => {
+                if bytes.len() < 24 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+                    return json!({"tool": "vm_shot", "status": "error", "reason": "output is not a valid PNG (VM running?)"});
+                }
+                let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+                let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+                json!({"tool": "vm_shot", "status": "ok", "vm": vm.trim(), "path": o, "bytes": bytes.len(), "width": w, "height": h, "output": raw.chars().take(500).collect::<String>()})
+            }
+            Err(e) => {
+                json!({"tool": "vm_shot", "status": "error", "reason": format!("screenshot taken but cannot read file: {e}")})
+            }
+        },
+        Err(e) => {
+            json!({"tool": "vm_shot", "status": "error", "reason": e, "hint": "VM must be running for screenshotpng"})
+        }
+    }
 }
 
 pub async fn sandbox_run(lang: &str, code: &str) -> Value {
@@ -242,4 +576,48 @@ pub async fn sandbox_run(lang: &str, code: &str) -> Value {
 #[allow(dead_code)]
 fn _use_duration() {
     let _ = Duration::from_secs(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vm_name_rejects_injection() {
+        assert!(!valid_name("a; rm -rf /", 64));
+        assert!(!valid_name("a&b", 64));
+        assert!(!valid_name("", 64));
+        assert!(valid_name("win11-automated", 64));
+        assert!(valid_name("ubu 2404 (test)", 64));
+    }
+
+    #[test]
+    fn ipv4_validation() {
+        assert!(valid_ipv4("192.168.56.1"));
+        assert!(!valid_ipv4("999.1.1.1"));
+        assert!(!valid_ipv4("abc"));
+    }
+
+    #[tokio::test]
+    async fn mutate_gate_refuses_without_confirm() {
+        let v = vm_start("some-vm", false).await;
+        let reason = v.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+        if !mutate_allowed() {
+            assert!(reason.contains("--yes"));
+        } else {
+            assert!(v.get("tool").is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_gate_refuses_without_confirm() {
+        let v = snapshot_create("vm", "snap", false).await;
+        if !mutate_allowed() {
+            assert!(v
+                .get("reason")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .contains("--yes"));
+        }
+    }
 }
