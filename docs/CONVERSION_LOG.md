@@ -1,5 +1,13 @@
 # Conversion Audit Log: `rust-vmcraft-mcp`
 
+## [2026-11-08] Phase Tier-2 (agent)
+- L1 mutating verbs with gate (`--yes` or env), validators, PNG IHDR check for shot.
+- L2 19 tools, `disk` + `shot` CLI tops, gate test.
+- L3 8 pages + mutate checkbox, `--smoke` ok.
+- Gates: clippy clean, 23 tests passed, fmt clean.
+- Live Oracle: 3 VMs, snapshot clean-desktop-2026-10-10, VDI list real, mutate-without-yes refused, shot-stopped-VM graceful error, network verb bug (`hostonlynets`→`hostonlyifs`) found + fixed live.
+- Next: Tier-3/4 (goldens, NSIS bundle, `run --script` batch for democraft), then `revecraft`.
+
 ## [2026-11-08] Phase 2 Tier-1 L1+L2+L3 skeleton (agent)
 - L1 `vm.rs` + `import.rs` + `lib.rs` (`Command::dispatch`, `dispatch_future_is_send`).
 - L2 CLI + dual-aliased MCP stdio (`vmcraft.*` + `vm_management` etc), 3 L2 tests.
