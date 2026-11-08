@@ -1,0 +1,20 @@
+[package]
+name = "vmcraft-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "L2 CLI-first binary + MCP stdio server over vmcraft-core"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "vmcraft-mcp"
+path = "src/main.rs"
+
+[dependencies]
+vmcraft-core = { path = "../vmcraft-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true
