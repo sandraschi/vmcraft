@@ -4,6 +4,167 @@ use eframe::egui::{self, RichText};
 use std::sync::{mpsc, Arc};
 use vmcraft_core::{dispatch, Command};
 
+const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(56, 189, 248);
+const ACCENT_AMBER: egui::Color32 = egui::Color32::from_rgb(251, 146, 60);
+const ACCENT_EMERALD: egui::Color32 = egui::Color32::from_rgb(52, 211, 153);
+
+/// Cyberpunk / Slate-950 high-contrast dark visuals.
+fn harsh_visuals() -> egui::Visuals {
+    let mut visuals = egui::Visuals::dark();
+    visuals.override_text_color = Some(egui::Color32::from_rgb(241, 245, 249));
+    visuals.window_fill = egui::Color32::from_rgb(15, 23, 42); // slate-900
+    visuals.panel_fill = egui::Color32::from_rgb(15, 23, 42);
+    visuals.extreme_bg_color = egui::Color32::from_rgb(2, 6, 23); // slate-950
+    visuals.code_bg_color = egui::Color32::from_rgb(30, 41, 59); // slate-800
+    visuals.faint_bg_color = egui::Color32::from_rgb(30, 41, 59);
+    visuals.warn_fg_color = egui::Color32::from_rgb(251, 191, 36);
+    visuals.error_fg_color = egui::Color32::from_rgb(248, 113, 113);
+
+    visuals.widgets.noninteractive.fg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(203, 213, 225));
+    visuals.widgets.inactive.fg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(226, 232, 240));
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+
+    visuals.selection.bg_fill = egui::Color32::from_rgb(14, 116, 144);
+    visuals.selection.stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+    visuals.hyperlink_color = egui::Color32::from_rgb(56, 189, 248);
+
+    visuals.window_corner_radius = egui::CornerRadius::same(8);
+    visuals.menu_corner_radius = egui::CornerRadius::same(6);
+    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(4);
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+    visuals.widgets.open.corner_radius = egui::CornerRadius::same(6);
+
+    visuals.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(51, 65, 85));
+    visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(71, 85, 105));
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.5, ACCENT_CYAN);
+    visuals
+}
+
+/// Crisp light visuals (slate-50 panel with clean border hairline).
+fn crisp_light_visuals() -> egui::Visuals {
+    let mut visuals = egui::Visuals::light();
+    visuals.override_text_color = Some(egui::Color32::from_rgb(15, 23, 42));
+    visuals.window_fill = egui::Color32::from_rgb(248, 250, 252);
+    visuals.panel_fill = egui::Color32::from_rgb(248, 250, 252);
+    visuals.extreme_bg_color = egui::Color32::from_rgb(241, 245, 249);
+    visuals.code_bg_color = egui::Color32::from_rgb(241, 245, 249);
+    visuals.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(226, 232, 240));
+    visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(203, 213, 225));
+    visuals.widgets.hovered.bg_stroke =
+        egui::Stroke::new(1.5, egui::Color32::from_rgb(2, 132, 199));
+    visuals.window_corner_radius = egui::CornerRadius::same(8);
+    visuals.menu_corner_radius = egui::CornerRadius::same(6);
+    visuals
+}
+
+/// Apply typography and visuals to context.
+fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
+    ctx.set_visuals(if dark_mode {
+        harsh_visuals()
+    } else {
+        crisp_light_visuals()
+    });
+    ctx.style_mut_of(
+        if dark_mode {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        },
+        |style| {
+            use egui::TextStyle::*;
+            for (text_style, size) in [
+                (Body, 14.5),
+                (Button, 14.0),
+                (Heading, 20.0),
+                (Monospace, 13.0),
+                (Small, 11.5),
+            ] {
+                if let Some(font) = style.text_styles.get_mut(&text_style) {
+                    font.size = size;
+                }
+            }
+            style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+            style.spacing.button_padding = egui::vec2(8.0, 4.0);
+        },
+    );
+}
+
+/// Theme toggle button: renders vector sun / moon.
+fn theme_toggle_button(ui: &mut egui::Ui, dark_mode: &mut bool) {
+    let size = egui::vec2(28.0, 24.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let visuals = ui.style().interact(&resp);
+        ui.painter().rect(
+            rect,
+            egui::CornerRadius::same(6),
+            visuals.bg_fill,
+            visuals.bg_stroke,
+            egui::StrokeKind::Inside,
+        );
+        let center = rect.center();
+        let painter = ui.painter();
+        if *dark_mode {
+            let sun_color = egui::Color32::from_rgb(251, 191, 36);
+            painter.circle_filled(center, 4.0, sun_color);
+            for i in 0..8 {
+                let angle = (i as f32) * std::f32::consts::TAU / 8.0;
+                let dir = egui::vec2(angle.cos(), angle.sin());
+                painter.line_segment(
+                    [center + dir * 5.5, center + dir * 8.0],
+                    egui::Stroke::new(1.5, sun_color),
+                );
+            }
+        } else {
+            let moon_color = egui::Color32::from_rgb(51, 65, 85);
+            painter.circle_filled(center, 5.5, moon_color);
+            painter.circle_filled(center + egui::vec2(2.5, -1.8), 4.8, visuals.bg_fill);
+        }
+    }
+    if resp.on_hover_text("Toggle theme").clicked() {
+        *dark_mode = !*dark_mode;
+        apply_theme(ui.ctx(), *dark_mode);
+    }
+}
+
+/// Ctrl+MouseWheel global UI zoom handler.
+fn handle_zoom(ctx: &egui::Context) {
+    let zoom = ctx.input(|input| input.zoom_delta());
+    if (zoom - 1.0).abs() > f32::EPSILON {
+        ctx.set_zoom_factor((ctx.zoom_factor() * zoom).clamp(0.6, 2.5));
+    }
+}
+
+/// Render a glowing badge pill.
+fn render_badge(ui: &mut egui::Ui, label: &str, bg: egui::Color32, fg: egui::Color32) {
+    let padding = egui::vec2(8.0, 2.0);
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_string(), egui::FontId::proportional(11.5), fg);
+    let size = galley.size() + padding * 2.0;
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        ui.painter().rect(
+            rect,
+            egui::CornerRadius::same(10),
+            bg,
+            egui::Stroke::new(1.0, fg),
+            egui::StrokeKind::Inside,
+        );
+        let text_pos = rect.left_top() + padding;
+        ui.painter().galley(text_pos, galley, fg);
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Dashboard,
@@ -88,6 +249,9 @@ pub struct VmApp {
     sandbox_code: String,
     sandbox_output: String,
     mutate_confirm: bool,
+    dark_mode: bool,
+    airgap_active: bool,
+    disasm_code: String,
     detonate_keygen: String,
     detonate_target: String,
     detonate_disasm_exe: String,
@@ -143,6 +307,9 @@ impl VmApp {
             sandbox_code: "print('hi-vm')".to_string(),
             sandbox_output: String::new(),
             mutate_confirm: false,
+            dark_mode: true,
+            airgap_active: false,
+            disasm_code: String::new(),
             detonate_keygen: String::new(),
             detonate_target: String::new(),
             detonate_disasm_exe: "ida64.exe".to_string(),
@@ -320,6 +487,30 @@ impl VmApp {
                                 self.shot_image = Some(color_image);
                             }
                         }
+                    } else if (title == "Pipeline Detonate" || title == "Detonate & Disassemble")
+                        && !self.detonate_host_out.is_empty()
+                    {
+                        if let Ok(content) = std::fs::read_to_string(&self.detonate_host_out) {
+                            self.disasm_code = content;
+                        }
+                        if let Some(shot) = value.get("screenshot").and_then(|v| v.as_str()) {
+                            if let Ok(bytes) = std::fs::read(shot) {
+                                if let Ok(dyn_img) = image::load_from_memory(&bytes) {
+                                    let size =
+                                        [dyn_img.width() as usize, dyn_img.height() as usize];
+                                    let rgba = dyn_img.to_rgba8();
+                                    self.shot_image =
+                                        Some(egui::ColorImage::from_rgba_unmultiplied(
+                                            size,
+                                            rgba.as_raw(),
+                                        ));
+                                }
+                            }
+                        }
+                    } else if title == "Airgap Sever" {
+                        self.airgap_active = true;
+                    } else if title == "Airgap Reconnect" {
+                        self.airgap_active = false;
                     }
                     let formatted =
                         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
@@ -338,6 +529,9 @@ impl eframe::App for VmApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain();
 
+        // Handle Ctrl+MouseWheel zooming
+        handle_zoom(ui.ctx());
+
         if self.pending_tasks > 0 {
             ui.ctx().request_repaint();
         }
@@ -349,20 +543,60 @@ impl eframe::App for VmApp {
 
         // Top bar
         ui.horizontal(|ui| {
-            ui.heading(RichText::new("vmcraft").strong());
+            ui.heading(RichText::new("vmcraft").strong().color(ACCENT_CYAN));
+            render_badge(
+                ui,
+                "v1.0.0 Tier 4",
+                egui::Color32::from_rgb(14, 116, 144),
+                egui::Color32::WHITE,
+            );
+
             if ui.button("⟳ Refresh").clicked() {
                 self.refresh_all();
             }
+
             if self.pending_tasks > 0 {
                 ui.spinner();
                 ui.label(RichText::new(format!("Loading ({}…)", self.pending_tasks)).weak());
             } else {
-                ui.label(RichText::new(&self.status).color(egui::Color32::from_rgb(100, 200, 100)));
+                ui.label(RichText::new(&self.status).color(ACCENT_EMERALD));
             }
+
             if let Some(ref host) = self.host_info {
                 ui.separator();
                 ui.label(RichText::new(host).weak());
             }
+
+            // Theme toggle button on the far right
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                theme_toggle_button(ui, &mut self.dark_mode);
+            });
+        });
+        ui.separator();
+
+        // Persistent Airgap & Security Banner
+        ui.horizontal(|ui| {
+            if self.airgap_active {
+                render_badge(
+                    ui,
+                    "✂ HARD AIRGAP ENFORCED — ALL VIRTUAL NICS SEVERED — CLIPBOARD LOCKED",
+                    egui::Color32::from_rgb(120, 53, 15),
+                    ACCENT_AMBER,
+                );
+            } else {
+                render_badge(
+                    ui,
+                    "🌐 NETWORK ADAPTERS CONNECTED",
+                    egui::Color32::from_rgb(6, 78, 59),
+                    ACCENT_EMERALD,
+                );
+            }
+
+            ui.separator();
+            ui.checkbox(&mut self.mutate_confirm, "allow mutate (== --yes)");
+            ui.label(
+                RichText::new("mutating verbs need this checkbox or VMCRAFT_ALLOW_MUTATE=1").weak(),
+            );
         });
         ui.separator();
 
@@ -380,19 +614,16 @@ impl eframe::App for VmApp {
                 Page::Commands,
                 Page::Help,
             ] {
-                if ui.selectable_label(self.page == p, p.label()).clicked() {
+                let is_selected = self.page == p;
+                let btn = if is_selected {
+                    ui.button(RichText::new(p.label()).strong().color(ACCENT_CYAN))
+                } else {
+                    ui.button(p.label())
+                };
+                if btn.clicked() {
                     self.page = p;
                 }
             }
-        });
-        ui.separator();
-
-        // Safety mutation toggle
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.mutate_confirm, "allow mutate (== --yes)");
-            ui.label(
-                RichText::new("mutating verbs need this checkbox or VMCRAFT_ALLOW_MUTATE=1").weak(),
-            );
         });
         ui.separator();
 
@@ -432,17 +663,22 @@ impl eframe::App for VmApp {
                                     for vm in &self.vms {
                                         ui.label(
                                             RichText::new(&vm.name)
-                                                .color(egui::Color32::from_rgb(220, 230, 245)),
+                                                .color(egui::Color32::from_rgb(220, 230, 245))
+                                                .strong(),
                                         );
                                         if vm.provider == "hyperv" {
-                                            ui.colored_label(
-                                                egui::Color32::from_rgb(100, 180, 255),
+                                            render_badge(
+                                                ui,
                                                 "Hyper-V",
+                                                egui::Color32::from_rgb(8, 51, 68),
+                                                ACCENT_CYAN,
                                             );
                                         } else {
-                                            ui.colored_label(
-                                                egui::Color32::from_rgb(255, 170, 80),
+                                            render_badge(
+                                                ui,
                                                 "VirtualBox",
+                                                egui::Color32::from_rgb(67, 20, 7),
+                                                ACCENT_AMBER,
                                             );
                                         }
                                         ui.label(RichText::new(&vm.uuid).weak());
@@ -949,6 +1185,16 @@ impl eframe::App for VmApp {
                         );
                     }
 
+                    if ui.button("🔌 Reconnect Network").clicked() {
+                        self.spawn_command(
+                            "Airgap Reconnect",
+                            Command::AirgapSet {
+                                vm: self.vm_name.clone(),
+                                disconnect: false,
+                            },
+                        );
+                    }
+
                     if ui.button("🚨 Emergency Nuke & Purge VM").clicked() {
                         self.spawn_command(
                             "Emergency Nuke",
@@ -962,14 +1208,40 @@ impl eframe::App for VmApp {
                 });
 
                 ui.separator();
-                ui.label(RichText::new("Detonation Progress & Telemetry:").strong());
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.vm_output)
-                            .desired_rows(12)
-                            .desired_width(f32::INFINITY)
-                            .font(egui::TextStyle::Monospace),
-                    );
+                // Interactive split: Telemetry on left/top, Disassembly Output on right/bottom
+                ui.columns(2, |cols| {
+                    cols[0].vertical(|ui| {
+                        ui.label(RichText::new("Detonation Progress & Telemetry:").strong());
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.vm_output)
+                                    .desired_rows(14)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                    });
+
+                    cols[1].vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Extracted Disassembly Studio:").strong());
+                            if ui.button("📂 Load from Host Output").clicked() {
+                                if let Ok(content) =
+                                    std::fs::read_to_string(&self.detonate_host_out)
+                                {
+                                    self.disasm_code = content;
+                                }
+                            }
+                        });
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.disasm_code)
+                                    .desired_rows(14)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                    });
                 });
             }
             Page::Sandbox => {
@@ -1178,6 +1450,9 @@ mod tests {
             sandbox_code: String::new(),
             sandbox_output: String::new(),
             mutate_confirm: false,
+            dark_mode: true,
+            airgap_active: false,
+            disasm_code: String::new(),
             detonate_keygen: String::new(),
             detonate_target: String::new(),
             detonate_disasm_exe: "ida64.exe".to_string(),

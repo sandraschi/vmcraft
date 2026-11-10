@@ -546,9 +546,7 @@ pub fn commands_catalog() -> Value {
 }
 
 pub fn describe_command(cmd_id: &str) -> Option<Value> {
-    let clean = cmd_id
-        .trim()
-        .trim_start_matches("vmcraft.");
+    let clean = cmd_id.trim().trim_start_matches("vmcraft.");
     let catalog = commands_catalog();
     let arr = catalog.as_array()?;
     arr.iter()
