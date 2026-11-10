@@ -13,8 +13,14 @@ fn vboxmanage_candidates() -> Vec<String> {
             out.push(t);
         }
     }
+    let default_win = r"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe";
+    if std::path::Path::new(default_win).exists() {
+        out.push(default_win.to_string());
+    }
     out.push("VBoxManage".to_string());
-    out.push(r"C:\Program Files\Oracle\VirtualBox\VBoxManage.exe".to_string());
+    if !out.iter().any(|s| s == default_win) {
+        out.push(default_win.to_string());
+    }
     out
 }
 

@@ -1,5 +1,12 @@
 # Changelog — vmcraft
 
+## [2026-11-10] v0.2.1 Fix startup freeze and auto-load VM list in L3 workstation app
+- L3: Non-blocking async channels (`mpsc::channel`) decoupled from egui UI loop, eliminating thread blocks from synchronous `block_on`.
+- L3: Auto-refresh on startup immediately queries `vmcraft.status`, `vmcraft.vm_list`, and `vmcraft.host_info`, ending the "stuck in starting… with empty VM list" condition.
+- L3: Full interactive VM table on Dashboard with instant Select/Info/Start/Stop controls and quick VM selector on the VMs page.
+- L1: `vboxmanage_candidates` checks `C:\Program Files\Oracle\VirtualBox\VBoxManage.exe` existence first before falling back to PATH, avoiding process spawning delays.
+- Gates: `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean, `cargo test --workspace` 25 passed, `cargo fmt --check` clean.
+
 ## [2026-11-08] v0.2.0 Tier-2 mutating verbs + full L3 pages
 - L1: `vm create|start|stop|delete`, `snapshot create|restore|delete`, `network create|remove` (hostonlyif), `disk list|create (.vdi)`, `vm shot` (screenshotpng + PNG IHDR validate), all mutating behind `confirm || VMCRAFT_ALLOW_MUTATE=1`, strict name/IP/path validators, injection tests.
 - L2: CLI `--yes` on every mutating verb (`vm/network/snapshot/disk`), new `disk` + `shot` tops, 19 MCP tools, dual aliases (`vmcraft.*` + legacy portmanteaus), `mutate_without_confirm_is_refused` test.
