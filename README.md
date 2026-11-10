@@ -1,0 +1,124 @@
+# vmcraft
+
+Pure-Rust ArtCraft Virtual Machine workstation for local virtualization management and agentic tooling. One unified Rust workspace providing an in-process core domain library (L1), a dual-mode human CLI and JSON-RPC Model Context Protocol (MCP) server (L2), and an interactive native egui desktop workstation (L3).
+
+Status: **v0.2.1, Tier 2** (L1 core + L2 CLI/MCP + L3 egui desktop app, live Oracle verified on Windows with VirtualBox 7+).
+
+- Changes: [CHANGELOG.md](CHANGELOG.md)
+- Conversion Dossier: [docs/CONVERSION_DOSSIER.md](docs/CONVERSION_DOSSIER.md)
+- Audit Log: [docs/CONVERSION_LOG.md](docs/CONVERSION_LOG.md)
+- Agent Guide: [AGENTS.md](AGENTS.md)
+- Handover: [HANDOVER.md](HANDOVER.md)
+
+---
+
+## Architecture
+
+| Crate | Layer | Purpose |
+|---|---|---|
+| `crates/vmcraft-core` | L1 | In-process command dispatch bus (`Command::dispatch`), VBoxManage subprocess orchestration, Hyper-V probe, ephemeral sandbox execution, strict input validators. |
+| `crates/vmcraft-mcp` | L2 | Binary providing both human CLI subcommands and standard Model Context Protocol (MCP) JSON-RPC stdio. Dual-aliased to support both modern `vmcraft.*` names and legacy portmanteaus (`vm_management`, `snapshot_management`, etc.). |
+| `crates/vmcraft-app` | L3 | Native eframe/egui desktop application with 8 functional tabs, non-blocking asynchronous message passing (`mpsc::channel`), live VM table, and safety gating. |
+
+---
+
+## Desktop Workstation (`vmcraft-app`)
+
+Launch via:
+```powershell
+.\start.ps1
+# or via fleet launcher:
+..\mcp-central-docs\starts\vmcraft-start.bat
+```
+
+### Features
+- **Instant Background Discovery**: Automatically polls hypervisor status, VM list, and host templates upon opening without blocking the UI thread.
+- **Dashboard**: Live VM overview table showing VM Name, UUID, and instant action buttons (`Select`, `Info`, `Start`, `Stop`), plus an activity log.
+- **VMs Page**: Quick target selector bar, VM configuration form, start/stop/create/delete controls, and detailed hardware inspect output.
+- **Snapshots Page**: Point-in-time snapshot listing, creation, restoration, and deletion.
+- **Network Page**: VirtualBox host-only network interface management (`list`, `create`, `remove`).
+- **Disks Page**: Virtual disk image (`.vdi`) inspection and dynamic provisioning.
+- **Shot Page**: Framebuffer screenshot capture directly into PNG files for running VMs.
+- **Sandbox Page**: Safe, isolated 30-second script runner for Python and PowerShell.
+- **Help & Safety**: Visual toggle for mutating operations gate.
+
+---
+
+## MCP Server Configuration
+
+To register `vmcraft` as an MCP server in Claude Desktop, OpenCode, or Cursor:
+
+```json
+{
+  "mcpServers": {
+    "vmcraft": {
+      "command": "D:/Dev/repos/vmcraft/target/release/vmcraft-mcp.exe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### MCP Tools & Dual Aliases
+All tools are dual-aliased to ensure 100% backward compatibility with legacy tooling:
+- `vmcraft.status` / `virtualization_shutdown` / `info_tools`
+- `vmcraft.vm_list`, `vmcraft.vm_info`, `vmcraft.vm_create`, `vmcraft.vm_start`, `vmcraft.vm_stop`, `vmcraft.vm_delete` (legacy alias: `vm_management`)
+- `vmcraft.snapshot_list`, `vmcraft.snapshot_create`, `vmcraft.snapshot_restore`, `vmcraft.snapshot_delete` (legacy alias: `snapshot_management`)
+- `vmcraft.network_list`, `vmcraft.network_create`, `vmcraft.network_remove` (legacy alias: `network_management`)
+- `vmcraft.disk_list`, `vmcraft.disk_create` (legacy alias: `storage_management`)
+- `vmcraft.vm_shot` (captures PNG screenshot)
+- `vmcraft.host_info` (legacy alias: `system_management`)
+- `vmcraft.sandbox_run` (legacy alias: `create_sandbox`, `stop_sandbox`)
+
+---
+
+## CLI Usage
+
+```powershell
+# Check hypervisor status
+vmcraft-mcp status
+
+# List all registered VirtualBox VMs
+vmcraft-mcp vm list
+
+# Inspect detailed hardware configuration of a VM
+vmcraft-mcp vm info --vm "ubu-2404-lts"
+
+# Start a VM (mutating operations require --yes or VMCRAFT_ALLOW_MUTATE=1)
+vmcraft-mcp vm start --vm "ubu-2404-lts" --yes
+
+# Take a snapshot
+vmcraft-mcp snapshot create --vm "ubu-2404-lts" --snap "clean-state" --yes
+
+# Capture a screenshot from a running VM
+vmcraft-mcp shot --vm "ubu-2404-lts" --out "screenshot.png"
+
+# Execute code in the safe isolated sandbox
+vmcraft-mcp sandbox run --lang python --code "print('hello from sandbox')"
+```
+
+---
+
+## Safety & Containment Rules
+
+- **Mutating Operations Gate**: Operations that modify system or VM state (`vm create/start/stop/delete`, `snapshot create/restore/delete`, `network create/remove`, `disk create`) require explicit confirmation via `--yes`, `VMCRAFT_ALLOW_MUTATE=1`, or the UI checkbox.
+- **Zero-Unwrap Policy**: Workspace compiles under strict denial of `unwrap_used`, `expect_used`, `panic`, `todo`, and `unimplemented`.
+- **Stdio Isolation**: The MCP server guarantees that `stdout` is exclusively reserved for valid JSON-RPC frames; all diagnostic logs are directed to `stderr`.
+
+---
+
+## Verification & Testing
+
+```powershell
+# Run full workspace test suite (25 tests)
+cargo test --workspace
+
+# Lint with strict zero-warning policy
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+# Verify formatting
+cargo fmt --all --check
+
+# Test application smoke harness
+cargo run -p vmcraft-app --release -- --smoke
+```

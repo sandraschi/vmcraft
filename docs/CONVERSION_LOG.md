@@ -1,5 +1,13 @@
 # Conversion Audit Log: `rust-vmcraft-mcp`
 
+## [2026-11-10] Phase Tier-2 v0.2.1 Fix startup freeze and auto-load VM list in L3 workstation app (agent)
+- L3: Non-blocking async channels (`mpsc::channel`) decoupled from egui UI loop, eliminating thread freezes from synchronous `block_on`.
+- L3: Auto-refresh on startup immediately queries `vmcraft.status`, `vmcraft.vm_list`, and `vmcraft.host_info`, ending the "stuck in starting… with empty VM list" condition.
+- L3: Full interactive VM table on Dashboard with instant Select/Info/Start/Stop controls and quick VM selector on the VMs page.
+- L1: `vboxmanage_candidates` checks `C:\Program Files\Oracle\VirtualBox\VBoxManage.exe` existence first before falling back to PATH, avoiding process spawning delays.
+- Gates: `cargo clippy --workspace --all-targets --all-features -- -D warnings` clean, `cargo test --workspace` 25 passed, `cargo fmt --check` clean.
+- Live Oracle Goliath: 3 VMs resolved instantly, non-blocking UI responsive.
+
 ## [2026-11-08] Phase Tier-2 (agent)
 - L1 mutating verbs with gate (`--yes` or env), validators, PNG IHDR check for shot.
 - L2 19 tools, `disk` + `shot` CLI tops, gate test.
