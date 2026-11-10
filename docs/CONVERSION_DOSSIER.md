@@ -119,8 +119,19 @@ Discovered environment keys in `D:\Dev\repos\virtualization-mcp` (values redacte
 - `src/virtualization_mcp/plugins/hyperv/__init__.py (198 bytes)`
 
 ## 6. Write-Safety & Destructive-Action Fence Design
-- *(Agent: document `readonly: bool` or `SQLITE_OPEN_READ_ONLY` guards for any mutating command)*
+- All mutating commands (`vm create|start|stop|delete`, `snapshot create|restore|delete`, `network create|remove`, `disk create`, `airgap`, `guest.exec`, `pipeline.detonate`, `pipeline.naked_install`) require explicit confirmation flag `--yes` in CLI, `confirm: true` in MCP JSON-RPC, or `VMCRAFT_ALLOW_MUTATE=1` in the environment.
+- Read-only operations (`status`, `vm list`, `vm info`, `snapshot list`, `network list`, `disk list`, `shot`, `host info`, `commands`, `describe`) execute without prompt.
+- Clean-room detonation pipeline enforces an unconditional pre-detonation snapshot `craft-detonate-<ts>` and rolls back via RAII, guaranteeing zero residual footprint on the guest VM even if payloads crash or fail.
 
-## 7. L3 `egui` Desktop Page & Golden Snapshot Plan
-- Standard pages inherited from kernel: `Crossconnect`, `Chat` (`gemma4:12b`), `Settings` (`vault.rs`), `Help`, `RawJson`.
-- Domain pages to add in `crates/vmcraft-app/src/app.rs`: *(Agent: list 2-4 domain tabs and `egui_kittest` snapshot names)*
+## 7. L3 `egui` Desktop Pages
+10 Domain Tabs implemented in `crates/vmcraft-app/src/app.rs`:
+- `Dashboard`: Multi-hypervisor VM overview table (VirtualBox & Hyper-V) with quick actions and operational log.
+- `VMs`: Detailed target selector, hardware configuration form, and state controls.
+- `Snapshots`: Structured point-in-time snapshot tree with restore/delete actions.
+- `Network`: VirtualBox host-only network management.
+- `Disks`: Virtual disk image (`.vdi`) inspection and dynamic provisioning.
+- `Shot`: Framebuffer screenshot capture with live in-app PNG decoding.
+- `Sandbox`: Isolated 30-second script runner for Python and PowerShell.
+- `Commands`: Interactive ArtCraft Command Bus catalog (28 verbs) and test dispatcher.
+- `Detonate`: Clean-room air-gapped detonation & disassembly studio with emergency nuke/rollback.
+- `Help`: Safety gates and reference documentation.

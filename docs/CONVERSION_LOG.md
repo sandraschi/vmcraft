@@ -1,5 +1,30 @@
 # Conversion Audit Log: `rust-vmcraft-mcp`
 
+## [2026-11-10] Phase Tier-4 v1.0.0 Clean-Room Detonation Pipeline & Airgap Isolation (agent)
+- L1 (`vmcraft-core`):
+  - Airgap Engine (`airgap_set`): Dynamic severance of virtual network link cables across adapters 1..4 (`setlinkstateN off`), clipboard disabled, drag-and-drop disabled.
+  - In-guest execution via guest additions: `guest_exec`, `guest_copyto`, `guest_copyfrom` (no network shares required).
+  - Clean-room detonation pipeline (`pipeline_detonate`): RAII automated snapshotting, headless poweron, hard airgap severance, untrusted keygen/patcher injection & explosion, target injection, in-guest batch disassembler (`ida64.exe`) execution, non-executable output extraction (`.asm`), and unconditional auto-rollback to pre-detonation state.
+  - Naked consumer install validation (`pipeline_naked_install`): Automated pristine baseline verification.
+  - ArtCraft Command Bus expanded to 28 registered commands.
+- L2 (`vmcraft-mcp`):
+  - Added CLI subcommands: `pipeline detonate`, `pipeline naked-test`, `airgap`, `guest run`, `guest copyto`, `guest copyfrom`.
+  - Added MCP tools: `vmcraft.pipeline_detonate`, `vmcraft.pipeline_naked_install`, `vmcraft.airgap_set`, `vmcraft.guest_exec`, `vmcraft.guest_copyto`, `vmcraft.guest_copyfrom`.
+  - Safety gate: All mutating verbs strictly require `--yes` or `VMCRAFT_ALLOW_MUTATE=1`.
+- L3 (`vmcraft-app`):
+  - Added 10th tab **Detonate**: Dedicated clean-room detonation studio with parameters for target VM, credentials, keygen, target binary, disassembler executable, output paths, and emergency rollback.
+- Gates:
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`: 0 warnings, zero unwraps/panics.
+  - `cargo test --workspace`: 30 passed (21 core + 7 mcp + 2 app).
+  - `cargo fmt --check`: clean.
+  - Smoke binary passes in debug and release.
+
+## [2026-11-10] Phase Tier-3 v0.3.0 ArtCraft Command Bus & Multi-Hypervisor Workstation (agent)
+- L1: ArtCraft Command Bus with 22 operations, native Windows Hyper-V CIM probe/list/start/stop, multi-hypervisor combined list, structured snapshots.
+- L2: CLI command bus (`commands`, `describe`, `run`, `batch`), CLI Hyper-V (`hyperv list|start|stop`), MCP tools.
+- L3: 9 tabs, Command Bus browser tab, multi-hypervisor badges on Dashboard, live snapshot table with restore/delete, in-app framebuffer PNG viewer.
+- Gates: clippy clean, 27 tests passed, fmt clean, smoke ok.
+
 ## [2026-11-10] Phase Tier-2 v0.2.1 Fix startup freeze and auto-load VM list in L3 workstation app (agent)
 - L3: Non-blocking async channels (`mpsc::channel`) decoupled from egui UI loop, eliminating thread freezes from synchronous `block_on`.
 - L3: Auto-refresh on startup immediately queries `vmcraft.status`, `vmcraft.vm_list`, and `vmcraft.host_info`, ending the "stuck in starting… with empty VM list" condition.

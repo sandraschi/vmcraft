@@ -71,6 +71,12 @@ All tools are dual-aliased to ensure 100% backward compatibility with legacy too
 - `vmcraft.vm_shot` (captures PNG screenshot)
 - `vmcraft.host_info` (legacy alias: `system_management`)
 - `vmcraft.sandbox_run` (legacy alias: `create_sandbox`, `stop_sandbox`)
+- `vmcraft.hyperv_list`, `vmcraft.hyperv_start`, `vmcraft.hyperv_stop` (legacy alias: `hyperv_management`)
+- `vmcraft.commands`, `vmcraft.describe`, `vmcraft.run` (ArtCraft Command Bus)
+- `vmcraft.airgap_set` (Hardware/link-level network disconnect & clipboard/DnD block)
+- `vmcraft.guest_exec`, `vmcraft.guest_copyto`, `vmcraft.guest_copyfrom` (In-guest orchestration via guest additions)
+- `vmcraft.pipeline_detonate` (Untrusted keygen explosion, in-guest disassembly under airgap, clean extraction, and auto-rollback)
+- `vmcraft.pipeline_naked_install` (Clean baseline consumer install verification)
 
 ---
 
@@ -80,7 +86,7 @@ All tools are dual-aliased to ensure 100% backward compatibility with legacy too
 # Check hypervisor status
 vmcraft-mcp status
 
-# List all registered VirtualBox VMs
+# List all registered VMs (VirtualBox + Hyper-V)
 vmcraft-mcp vm list
 
 # Inspect detailed hardware configuration of a VM
@@ -97,13 +103,32 @@ vmcraft-mcp shot --vm "ubu-2404-lts" --out "screenshot.png"
 
 # Execute code in the safe isolated sandbox
 vmcraft-mcp sandbox run --lang python --code "print('hello from sandbox')"
+
+# Explore ArtCraft command bus catalog
+vmcraft-mcp commands --json
+vmcraft-mcp describe pipeline.detonate
+
+# Clean-room air-gapped detonation & disassembly of untrusted binary
+vmcraft-mcp pipeline detonate `
+  --vm "win11" `
+  --keygen "C:\malware\keygen.exe" `
+  --target "C:\bin\target.exe" `
+  --disassembler "ida64.exe" `
+  --host-output "output.asm" `
+  --yes
+
+# Immediately sever all network links and clipboard to airgap a VM
+vmcraft-mcp airgap "win11" --disconnect
+
+# Verify clean-room consumer install on pristine baseline
+vmcraft-mcp pipeline naked-test --repo "my-org/my-app" --yes
 ```
 
 ---
 
 ## Safety & Containment Rules
 
-- **Mutating Operations Gate**: Operations that modify system or VM state (`vm create/start/stop/delete`, `snapshot create/restore/delete`, `network create/remove`, `disk create`) require explicit confirmation via `--yes`, `VMCRAFT_ALLOW_MUTATE=1`, or the UI checkbox.
+- **Mutating Operations Gate**: Operations that modify system or VM state (`vm create/start/stop/delete`, `snapshot create/restore/delete`, `network create/remove`, `disk create`, `airgap`, `guest.exec`, `pipeline.detonate`, `pipeline.naked_install`) require explicit confirmation via `--yes`, `VMCRAFT_ALLOW_MUTATE=1`, or the UI checkbox.
 - **Zero-Unwrap Policy**: Workspace compiles under strict denial of `unwrap_used`, `expect_used`, `panic`, `todo`, and `unimplemented`.
 - **Stdio Isolation**: The MCP server guarantees that `stdout` is exclusively reserved for valid JSON-RPC frames; all diagnostic logs are directed to `stderr`.
 
@@ -112,7 +137,7 @@ vmcraft-mcp sandbox run --lang python --code "print('hello from sandbox')"
 ## Verification & Testing
 
 ```powershell
-# Run full workspace test suite (25 tests)
+# Run full workspace test suite (30 tests)
 cargo test --workspace
 
 # Lint with strict zero-warning policy
