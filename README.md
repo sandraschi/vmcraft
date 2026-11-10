@@ -2,7 +2,7 @@
 
 Pure-Rust ArtCraft Virtual Machine workstation for local virtualization management and agentic tooling. One unified Rust workspace providing an in-process core domain library (L1), a dual-mode human CLI and JSON-RPC Model Context Protocol (MCP) server (L2), and an interactive native egui desktop workstation (L3).
 
-Status: **v1.0.0, Tier 4** (L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+ & Hyper-V, ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation).
+Status: **v1.1.0, Tier 4** (L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs, ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation).
 
 - Changes: [CHANGELOG.md](CHANGELOG.md)
 - Conversion Dossier: [docs/CONVERSION_DOSSIER.md](docs/CONVERSION_DOSSIER.md)
@@ -77,6 +77,7 @@ All tools are dual-aliased to ensure 100% backward compatibility with legacy too
 - `vmcraft.guest_exec`, `vmcraft.guest_copyto`, `vmcraft.guest_copyfrom` (In-guest orchestration via guest additions)
 - `vmcraft.pipeline_detonate` (Untrusted keygen explosion, in-guest disassembly under airgap, clean extraction, and auto-rollback)
 - `vmcraft.pipeline_naked_install` (Clean baseline consumer install verification)
+- `vmcraft.firecracker_probe`, `vmcraft.firecracker_list`, `vmcraft.firecracker_spawn`, `vmcraft.firecracker_kill` (Sub-10ms KVM micro-VMs)
 
 ---
 
@@ -122,13 +123,19 @@ vmcraft-mcp airgap "win11" --disconnect
 
 # Verify clean-room consumer install on pristine baseline
 vmcraft-mcp pipeline naked-test --repo "my-org/my-app" --yes
+
+# Probe WSL2 KVM acceleration for Firecracker micro-VMs
+vmcraft-mcp firecracker probe
+
+# Spawn a dedicated sub-10ms ephemeral micro-VM
+vmcraft-mcp firecracker spawn --id "agent-worker-1" --kernel "/vmlinux" --rootfs "/rootfs.ext4" --yes
 ```
 
 ---
 
 ## Safety & Containment Rules
 
-- **Mutating Operations Gate**: Operations that modify system or VM state (`vm create/start/stop/delete`, `snapshot create/restore/delete`, `network create/remove`, `disk create`, `airgap`, `guest.exec`, `pipeline.detonate`, `pipeline.naked_install`) require explicit confirmation via `--yes`, `VMCRAFT_ALLOW_MUTATE=1`, or the UI checkbox.
+- **Mutating Operations Gate**: Operations that modify system or VM state (`vm create/start/stop/delete`, `snapshot create/restore/delete`, `network create/remove`, `disk create`, `airgap`, `guest.exec`, `pipeline.detonate`, `pipeline.naked_install`, `firecracker spawn/kill`) require explicit confirmation via `--yes`, `VMCRAFT_ALLOW_MUTATE=1`, or the UI checkbox.
 - **Zero-Unwrap Policy**: Workspace compiles under strict denial of `unwrap_used`, `expect_used`, `panic`, `todo`, and `unimplemented`.
 - **Stdio Isolation**: The MCP server guarantees that `stdout` is exclusively reserved for valid JSON-RPC frames; all diagnostic logs are directed to `stderr`.
 

@@ -80,6 +80,10 @@ enum Top {
         #[command(subcommand)]
         op: GuestOp,
     },
+    Firecracker {
+        #[command(subcommand)]
+        op: FirecrackerOp,
+    },
     Tools,
     Mcp,
 }
@@ -314,6 +318,34 @@ enum GuestOp {
         guest_src: String,
         #[arg(long)]
         host_dest: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum FirecrackerOp {
+    Probe,
+    List,
+    Spawn {
+        #[arg(long, default_value = "microvm-1")]
+        id: String,
+        #[arg(long, default_value_t = 1)]
+        vcpu: u32,
+        #[arg(long, default_value_t = 256)]
+        mem: u32,
+        #[arg(long, default_value = "/vmlinux")]
+        kernel: String,
+        #[arg(long, default_value = "/rootfs.ext4")]
+        rootfs: String,
+        #[arg(long)]
+        boot_args: Option<String>,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+    Kill {
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
     },
 }
 
@@ -662,6 +694,31 @@ async fn call_tool(name: &str, args: &Value) -> Value {
             })
             .await
         }
+        "vmcraft.firecracker_probe" | "firecracker_probe" => {
+            dispatch(Command::FirecrackerProbe).await
+        }
+        "vmcraft.firecracker_list" | "firecracker_list" => {
+            dispatch(Command::FirecrackerList).await
+        }
+        "vmcraft.firecracker_spawn" | "firecracker_spawn" => {
+            dispatch(Command::FirecrackerSpawn {
+                vm_id: s("vm_id"),
+                vcpu_count: args.get("vcpu").and_then(|v| v.as_u64()).map(|n| n as u32).unwrap_or(1),
+                mem_size_mib: args.get("mem_size_mib").and_then(|v| v.as_u64()).map(|n| n as u32).unwrap_or(256),
+                kernel_path: s("kernel_path"),
+                rootfs_path: s("rootfs_path"),
+                boot_args: if s("boot_args").is_empty() { None } else { Some(s("boot_args")) },
+                confirm: b(args, "confirm") || b(args, "yes"),
+            })
+            .await
+        }
+        "vmcraft.firecracker_kill" | "firecracker_kill" => {
+            dispatch(Command::FirecrackerKill {
+                vm_id: s("vm_id"),
+                confirm: b(args, "confirm") || b(args, "yes"),
+            })
+            .await
+        }
         _ => {
             json!({"content": [{"type": "text", "text": format!("unknown tool: {name}")}], "isError": true})
         }
@@ -916,6 +973,33 @@ async fn main() {
                 })
                 .await,
             ),
+        },
+        Some(Top::Firecracker { op }) => match op {
+            FirecrackerOp::Probe => print_json(&dispatch(Command::FirecrackerProbe).await),
+            FirecrackerOp::List => print_json(&dispatch(Command::FirecrackerList).await),
+            FirecrackerOp::Spawn {
+                id,
+                vcpu,
+                mem,
+                kernel,
+                rootfs,
+                boot_args,
+                yes,
+            } => print_json(
+                &dispatch(Command::FirecrackerSpawn {
+                    vm_id: id,
+                    vcpu_count: vcpu,
+                    mem_size_mib: mem,
+                    kernel_path: kernel,
+                    rootfs_path: rootfs,
+                    boot_args,
+                    confirm: yes,
+                })
+                .await,
+            ),
+            FirecrackerOp::Kill { id, yes } => {
+                print_json(&dispatch(Command::FirecrackerKill { vm_id: id, confirm: yes }).await)
+            }
         },
         Some(Top::Vm { op }) => match op {
             VmOp::List { limit, .. } => print_json(&dispatch(Command::VmList { limit }).await),

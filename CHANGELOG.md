@@ -1,5 +1,26 @@
 # Changelog — vmcraft
 
+## [2026-11-10] v1.1.0 Firecracker Micro-VM KVM Provider & Sub-10ms Agent Isolation
+- L1 (`vmcraft-core`):
+  - Added `firecracker` provider module (`crates/vmcraft-core/src/firecracker.rs`):
+    - `firecracker_probe`: Probes WSL2 environment for `/dev/kvm` hardware acceleration and `firecracker` binary presence.
+    - `firecracker_list`: Inspects running Firecracker micro-VM processes and UNIX domain sockets.
+    - `firecracker_spawn`: Bootstraps sub-10ms ephemeral micro-VMs with dedicated guest kernel (`vmlinux`) and `rootfs.ext4` via Unix domain socket REST API.
+    - `firecracker_kill`: Forcefully terminates micro-VM instances and purges domain sockets.
+  - Command Bus: Registered `firecracker.probe`, `firecracker.list`, `firecracker.spawn`, `firecracker.kill` (32 operations cataloged).
+- L2 (`vmcraft-mcp`):
+  - CLI: Added `firecracker probe`, `firecracker list`, `firecracker spawn`, `firecracker kill` subcommands.
+  - MCP Tools: Added `vmcraft.firecracker_probe`, `vmcraft.firecracker_list`, `vmcraft.firecracker_spawn`, `vmcraft.firecracker_kill`.
+  - Mutating confirmation: All micro-VM spawn/kill operations safely gated behind `--yes` / `VMCRAFT_ALLOW_MUTATE=1`.
+- L3 (`vmcraft-app`):
+  - Visual overhaul: Cyberpunk Slate-950 high-contrast palette, vector theme toggle (sun/moon), glowing status badge pills, persistent airgap status banner.
+  - Disassembly Studio: 2-column split-view in Detonate tab with direct `.asm` code viewer and host output loader.
+- Gates:
+  - Clippy: 0 warnings, zero unwraps/panics (`-D warnings`).
+  - Tests: 32 tests passing (`23 core + 7 mcp + 2 app`).
+  - Smoke: `vmcraft-app --smoke` passing.
+  - Live probe on Goliath: `kvm_available: true`, `host_mode: wsl2_kvm`.
+
 ## [2026-11-10] v1.0.0 Tier-4 Clean-Room Detonation Pipeline & Airgap Isolation
 - L1 (`vmcraft-core`):
   - Airgap Engine (`airgap_set`): Disconnects all virtual network adapter link cables in real-time (`setlinkstate1..4 off`), disables shared clipboard (`clipboard mode disabled`), and blocks drag-and-drop (`draganddrop disabled`).

@@ -4,6 +4,7 @@
 pub mod bridge;
 pub mod creds;
 pub mod error;
+pub mod firecracker;
 pub mod import;
 pub mod llm;
 pub mod pipeline;
@@ -40,6 +41,10 @@ pub const CMD_GUEST_COPYTO: &str = "vmcraft.guest_copyto";
 pub const CMD_GUEST_COPYFROM: &str = "vmcraft.guest_copyfrom";
 pub const CMD_PIPELINE_DETONATE: &str = "vmcraft.pipeline_detonate";
 pub const CMD_PIPELINE_NAKED_INSTALL: &str = "vmcraft.pipeline_naked_install";
+pub const CMD_FIRECRACKER_PROBE: &str = "vmcraft.firecracker_probe";
+pub const CMD_FIRECRACKER_LIST: &str = "vmcraft.firecracker_list";
+pub const CMD_FIRECRACKER_SPAWN: &str = "vmcraft.firecracker_spawn";
+pub const CMD_FIRECRACKER_KILL: &str = "vmcraft.firecracker_kill";
 
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -166,6 +171,21 @@ pub enum Command {
         baseline_vm: Option<String>,
         confirm: bool,
     },
+    FirecrackerProbe,
+    FirecrackerList,
+    FirecrackerSpawn {
+        vm_id: String,
+        vcpu_count: u32,
+        mem_size_mib: u32,
+        kernel_path: String,
+        rootfs_path: String,
+        boot_args: Option<String>,
+        confirm: bool,
+    },
+    FirecrackerKill {
+        vm_id: String,
+        confirm: bool,
+    },
     BridgeEvent {
         title: String,
         summary: String,
@@ -271,6 +291,31 @@ pub async fn dispatch(cmd: Command) -> Value {
             baseline_vm,
             confirm,
         } => pipeline::pipeline_naked_install(&repo, baseline_vm.as_deref(), confirm).await,
+        Command::FirecrackerProbe => firecracker::firecracker_probe().await,
+        Command::FirecrackerList => firecracker::firecracker_list().await,
+        Command::FirecrackerSpawn {
+            vm_id,
+            vcpu_count,
+            mem_size_mib,
+            kernel_path,
+            rootfs_path,
+            boot_args,
+            confirm,
+        } => {
+            firecracker::firecracker_spawn(firecracker::FirecrackerSpawnParams {
+                vm_id,
+                vcpu_count,
+                mem_size_mib,
+                kernel_path,
+                rootfs_path,
+                boot_args,
+                confirm,
+            })
+            .await
+        }
+        Command::FirecrackerKill { vm_id, confirm } => {
+            firecracker::firecracker_kill(&vm_id, confirm).await
+        }
         Command::BridgeEvent { title, summary } => {
             json!({"tool": "bridge.event", "status": "ok", "title": title, "summary": summary})
         }
@@ -539,6 +584,41 @@ pub fn commands_catalog() -> Value {
             "params": {
                 "repo": "string",
                 "baseline_vm": "string (optional)",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "firecracker.probe",
+            "label": "Firecracker KVM Probe",
+            "description": "Detect WSL2 /dev/kvm availability and Firecracker binary installation",
+            "params": {}
+        },
+        {
+            "id": "firecracker.list",
+            "label": "List Firecracker Micro-VMs",
+            "description": "List active Firecracker micro-VM processes and sockets in WSL2",
+            "params": {}
+        },
+        {
+            "id": "firecracker.spawn",
+            "label": "Spawn Firecracker Micro-VM",
+            "description": "Launch a sub-10ms ephemeral micro-VM with dedicated kernel and rootfs",
+            "params": {
+                "vm_id": "string",
+                "vcpu": "number (default: 1)",
+                "mem_size_mib": "number (default: 256)",
+                "kernel_path": "string",
+                "rootfs_path": "string",
+                "boot_args": "string (optional)",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "firecracker.kill",
+            "label": "Kill Firecracker Micro-VM",
+            "description": "Terminate a running Firecracker micro-VM instance by VM ID",
+            "params": {
+                "vm_id": "string",
                 "confirm": "boolean (default: false)"
             }
         }
@@ -1021,6 +1101,64 @@ pub fn parse_command(id: &str, params: &Value) -> Result<Command, String> {
                 baseline_vm,
                 confirm,
             })
+        }
+        "firecracker.probe" => Ok(Command::FirecrackerProbe),
+        "firecracker.list" => Ok(Command::FirecrackerList),
+        "firecracker.spawn" => {
+            let vm_id = params
+                .get("vm_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("microvm-1")
+                .to_string();
+            let vcpu_count = params
+                .get("vcpu")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32)
+                .unwrap_or(1);
+            let mem_size_mib = params
+                .get("mem_size_mib")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32)
+                .unwrap_or(256);
+            let kernel_path = params
+                .get("kernel_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("/vmlinux")
+                .to_string();
+            let rootfs_path = params
+                .get("rootfs_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("/rootfs.ext4")
+                .to_string();
+            let boot_args = params
+                .get("boot_args")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::FirecrackerSpawn {
+                vm_id,
+                vcpu_count,
+                mem_size_mib,
+                kernel_path,
+                rootfs_path,
+                boot_args,
+                confirm,
+            })
+        }
+        "firecracker.kill" => {
+            let vm_id = params
+                .get("vm_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::FirecrackerKill { vm_id, confirm })
         }
         _ => Err(format!("unknown command id '{id}'")),
     }
