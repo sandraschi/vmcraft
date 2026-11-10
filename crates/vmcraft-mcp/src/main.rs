@@ -66,6 +66,20 @@ enum Top {
         #[command(subcommand)]
         op: HypervOp,
     },
+    Pipeline {
+        #[command(subcommand)]
+        op: PipelineOp,
+    },
+    Airgap {
+        #[arg(long)]
+        vm: String,
+        #[arg(long, default_value_t = true)]
+        disconnect: bool,
+    },
+    Guest {
+        #[command(subcommand)]
+        op: GuestOp,
+    },
     Tools,
     Mcp,
 }
@@ -227,6 +241,82 @@ enum HypervOp {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum PipelineOp {
+    Detonate {
+        #[arg(long)]
+        vm: String,
+        #[arg(long, default_value = "")]
+        user: String,
+        #[arg(long, default_value = "")]
+        pass: String,
+        #[arg(long)]
+        keygen: Option<String>,
+        #[arg(long)]
+        target: String,
+        #[arg(long, default_value = "ida64.exe")]
+        disassembler: String,
+        #[arg(long, default_value = "C:\\detonate\\out.asm")]
+        guest_output: String,
+        #[arg(long, default_value = "out.asm")]
+        host_output: String,
+        #[arg(long)]
+        screenshot: Option<String>,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+    NakedTest {
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        baseline: Option<String>,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum GuestOp {
+    Exec {
+        #[arg(long)]
+        vm: String,
+        #[arg(long, default_value = "")]
+        user: String,
+        #[arg(long, default_value = "")]
+        pass: String,
+        #[arg(long)]
+        exe: String,
+        #[arg(long)]
+        args: Vec<String>,
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    Copyto {
+        #[arg(long)]
+        vm: String,
+        #[arg(long, default_value = "")]
+        user: String,
+        #[arg(long, default_value = "")]
+        pass: String,
+        #[arg(long)]
+        host_src: String,
+        #[arg(long)]
+        guest_dest: String,
+    },
+    Copyfrom {
+        #[arg(long)]
+        vm: String,
+        #[arg(long, default_value = "")]
+        user: String,
+        #[arg(long, default_value = "")]
+        pass: String,
+        #[arg(long)]
+        guest_src: String,
+        #[arg(long)]
+        host_dest: String,
+    },
+}
+
 fn print_json(v: &Value) {
     println!(
         "{}",
@@ -260,7 +350,13 @@ fn tools_list() -> Value {
         {"name": "vmcraft_sandbox_run", "description": "Ephemeral code run, 30s timeout"},
         {"name": "vmcraft.hyperv_list", "description": "List Hyper-V VMs (read-only)"},
         {"name": "vmcraft.hyperv_start", "description": "Start Hyper-V VM (needs --yes / allow)"},
-        {"name": "vmcraft.hyperv_stop", "description": "Stop Hyper-V VM (needs --yes / allow)"}
+        {"name": "vmcraft.hyperv_stop", "description": "Stop Hyper-V VM (needs --yes / allow)"},
+        {"name": "vmcraft.airgap_set", "description": "Set airgap network/clipboard block on VM"},
+        {"name": "vmcraft.guest_exec", "description": "Execute binary inside isolated guest via Guest Additions"},
+        {"name": "vmcraft.guest_copyto", "description": "Copy file from host into guest filesystem"},
+        {"name": "vmcraft.guest_copyfrom", "description": "Extract file from guest back to host"},
+        {"name": "vmcraft.pipeline_detonate", "description": "Clean-room keygen/untrusted detonation, in-guest disassembly, clean extraction, and auto-nuke"},
+        {"name": "vmcraft.pipeline_naked_install", "description": "Automated clean-room consumer install test for repo"}
     ]})
 }
 
@@ -467,6 +563,105 @@ async fn call_tool(name: &str, args: &Value) -> Value {
                 }
             }
         }
+        "vmcraft.airgap_set" | "airgap_set" => {
+            dispatch(Command::AirgapSet {
+                vm: s("vm"),
+                disconnect: args
+                    .get("disconnect")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            })
+            .await
+        }
+        "vmcraft.guest_exec" | "guest_exec" => {
+            let cmd_args = args
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            dispatch(Command::GuestExec {
+                vm: s("vm"),
+                user: s("user"),
+                pass: s("pass"),
+                exe: s("exe"),
+                args: cmd_args,
+                timeout_secs: args.get("timeout_secs").and_then(|v| v.as_u64()),
+            })
+            .await
+        }
+        "vmcraft.guest_copyto" | "guest_copyto" => {
+            dispatch(Command::GuestCopyTo {
+                vm: s("vm"),
+                user: s("user"),
+                pass: s("pass"),
+                host_src: s("host_src"),
+                guest_dest: s("guest_dest"),
+            })
+            .await
+        }
+        "vmcraft.guest_copyfrom" | "guest_copyfrom" => {
+            dispatch(Command::GuestCopyFrom {
+                vm: s("vm"),
+                user: s("user"),
+                pass: s("pass"),
+                guest_src: s("guest_src"),
+                host_dest: s("host_dest"),
+            })
+            .await
+        }
+        "vmcraft.pipeline_detonate" | "pipeline_detonate" => {
+            let disasm_args = args
+                .get("disassembler_args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            dispatch(Command::PipelineDetonate {
+                vm: s("vm"),
+                user: s("user"),
+                pass: s("pass"),
+                keygen: if s("keygen").is_empty() {
+                    None
+                } else {
+                    Some(s("keygen"))
+                },
+                target_binary: s("target_binary"),
+                disassembler_exe: if s("disassembler_exe").is_empty() {
+                    "ida64.exe".to_string()
+                } else {
+                    s("disassembler_exe")
+                },
+                disassembler_args: disasm_args,
+                guest_output: s("guest_output"),
+                host_output: s("host_output"),
+                screenshot: if s("screenshot").is_empty() {
+                    None
+                } else {
+                    Some(s("screenshot"))
+                },
+                confirm: b(args, "confirm") || b(args, "yes"),
+            })
+            .await
+        }
+        "vmcraft.pipeline_naked_install" | "pipeline_naked_install" => {
+            dispatch(Command::PipelineNakedInstall {
+                repo: s("repo"),
+                baseline_vm: if s("baseline_vm").is_empty() {
+                    None
+                } else {
+                    Some(s("baseline_vm"))
+                },
+                confirm: b(args, "confirm") || b(args, "yes"),
+            })
+            .await
+        }
         _ => {
             json!({"content": [{"type": "text", "text": format!("unknown tool: {name}")}], "isError": true})
         }
@@ -622,6 +817,102 @@ async fn main() {
                     vm,
                     force,
                     confirm: yes,
+                })
+                .await,
+            ),
+        },
+        Some(Top::Pipeline { op }) => match op {
+            PipelineOp::Detonate {
+                vm,
+                user,
+                pass,
+                keygen,
+                target,
+                disassembler,
+                guest_output,
+                host_output,
+                screenshot,
+                yes,
+            } => print_json(
+                &dispatch(Command::PipelineDetonate {
+                    vm,
+                    user,
+                    pass,
+                    keygen,
+                    target_binary: target,
+                    disassembler_exe: disassembler,
+                    disassembler_args: vec![],
+                    guest_output,
+                    host_output,
+                    screenshot,
+                    confirm: yes,
+                })
+                .await,
+            ),
+            PipelineOp::NakedTest {
+                repo,
+                baseline,
+                yes,
+            } => print_json(
+                &dispatch(Command::PipelineNakedInstall {
+                    repo,
+                    baseline_vm: baseline,
+                    confirm: yes,
+                })
+                .await,
+            ),
+        },
+        Some(Top::Airgap { vm, disconnect }) => {
+            print_json(&dispatch(Command::AirgapSet { vm, disconnect }).await)
+        }
+        Some(Top::Guest { op }) => match op {
+            GuestOp::Exec {
+                vm,
+                user,
+                pass,
+                exe,
+                args,
+                timeout,
+            } => print_json(
+                &dispatch(Command::GuestExec {
+                    vm,
+                    user,
+                    pass,
+                    exe,
+                    args,
+                    timeout_secs: timeout,
+                })
+                .await,
+            ),
+            GuestOp::Copyto {
+                vm,
+                user,
+                pass,
+                host_src,
+                guest_dest,
+            } => print_json(
+                &dispatch(Command::GuestCopyTo {
+                    vm,
+                    user,
+                    pass,
+                    host_src,
+                    guest_dest,
+                })
+                .await,
+            ),
+            GuestOp::Copyfrom {
+                vm,
+                user,
+                pass,
+                guest_src,
+                host_dest,
+            } => print_json(
+                &dispatch(Command::GuestCopyFrom {
+                    vm,
+                    user,
+                    pass,
+                    guest_src,
+                    host_dest,
                 })
                 .await,
             ),
@@ -786,5 +1077,14 @@ mod tests {
 
         let alias_res = call_tool("hyperv_management", &json!({"operation": "list"})).await;
         assert!(alias_res.get("tool").is_some());
+    }
+
+    #[tokio::test]
+    async fn airgap_and_pipeline_tools_route() {
+        let airgap = call_tool("vmcraft.airgap_set", &json!({"vm": "test-vm"})).await;
+        assert!(airgap.get("tool").is_some());
+
+        let detonate = call_tool("vmcraft.pipeline_detonate", &json!({"vm": "test-vm"})).await;
+        assert!(detonate.get("tool").is_some());
     }
 }

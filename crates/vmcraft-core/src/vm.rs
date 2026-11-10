@@ -5,7 +5,7 @@ use crate::creds::with_timeout_secs;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-fn vboxmanage_candidates() -> Vec<String> {
+pub(crate) fn vboxmanage_candidates() -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(p) = std::env::var("VBOXMANAGE_PATH") {
         let t = p.trim().to_string();
@@ -24,7 +24,7 @@ fn vboxmanage_candidates() -> Vec<String> {
     out
 }
 
-async fn run_capture(prog: &str, args: &[&str], secs: u64) -> Result<String, String> {
+pub(crate) async fn run_capture(prog: &str, args: &[&str], secs: u64) -> Result<String, String> {
     let fut = async {
         let mut cmd = tokio::process::Command::new(prog);
         cmd.args(args);
@@ -51,11 +51,11 @@ async fn run_capture(prog: &str, args: &[&str], secs: u64) -> Result<String, Str
         .map_err(|e| e.to_string())?
 }
 
-fn down(tool: &str, reason: &str) -> Value {
+pub(crate) fn down(tool: &str, reason: &str) -> Value {
     json!({"tool": tool, "status": "down", "reason": reason})
 }
 
-fn gate(tool: &str, confirm: bool) -> Option<Value> {
+pub(crate) fn gate(tool: &str, confirm: bool) -> Option<Value> {
     if confirm || mutate_allowed() {
         None
     } else {
@@ -65,7 +65,7 @@ fn gate(tool: &str, confirm: bool) -> Option<Value> {
     }
 }
 
-fn valid_name(value: &str, max: usize) -> bool {
+pub(crate) fn valid_name(value: &str, max: usize) -> bool {
     let t = value.trim();
     if t.is_empty() || t.chars().count() > max {
         return false;

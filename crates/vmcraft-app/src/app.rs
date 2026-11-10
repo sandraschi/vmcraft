@@ -12,6 +12,7 @@ enum Page {
     Network,
     Disks,
     Shot,
+    Detonate,
     Sandbox,
     Commands,
     Help,
@@ -26,6 +27,7 @@ impl Page {
             Page::Network => "Network",
             Page::Disks => "Disks",
             Page::Shot => "Shot",
+            Page::Detonate => "Detonate",
             Page::Sandbox => "Sandbox",
             Page::Commands => "Commands",
             Page::Help => "Help",
@@ -86,6 +88,14 @@ pub struct VmApp {
     sandbox_code: String,
     sandbox_output: String,
     mutate_confirm: bool,
+    detonate_keygen: String,
+    detonate_target: String,
+    detonate_disasm_exe: String,
+    detonate_user: String,
+    detonate_pass: String,
+    detonate_guest_out: String,
+    detonate_host_out: String,
+    detonate_airgap: bool,
 }
 
 impl VmApp {
@@ -133,6 +143,14 @@ impl VmApp {
             sandbox_code: "print('hi-vm')".to_string(),
             sandbox_output: String::new(),
             mutate_confirm: false,
+            detonate_keygen: String::new(),
+            detonate_target: String::new(),
+            detonate_disasm_exe: "ida64.exe".to_string(),
+            detonate_user: String::new(),
+            detonate_pass: String::new(),
+            detonate_guest_out: "C:\\detonate\\out.asm".to_string(),
+            detonate_host_out: "out.asm".to_string(),
+            detonate_airgap: true,
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -357,6 +375,7 @@ impl eframe::App for VmApp {
                 Page::Network,
                 Page::Disks,
                 Page::Shot,
+                Page::Detonate,
                 Page::Sandbox,
                 Page::Commands,
                 Page::Help,
@@ -848,6 +867,111 @@ impl eframe::App for VmApp {
                     );
                 });
             }
+            Page::Detonate => {
+                ui.heading("Air-Gapped Clean-Room Detonation & Triage");
+                ui.label(
+                    "Safely detonate untrusted keygens/patches inside an air-gapped guest (network cut), execute disassembler inside guest on target binary, extract clean disassembly, and auto-nuke & revert."
+                );
+                ui.separator();
+
+                ui.horizontal(|ui| {
+                    ui.label("Target VM:");
+                    ui.text_edit_singleline(&mut self.vm_name);
+                    ui.checkbox(&mut self.detonate_airgap, "Enforce Hard Airgap (0 egress)");
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Untrusted Keygen / Sample:");
+                    ui.text_edit_singleline(&mut self.detonate_keygen);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Target Binary to Disassemble:");
+                    ui.text_edit_singleline(&mut self.detonate_target);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("In-Guest Disassembler:");
+                    ui.text_edit_singleline(&mut self.detonate_disasm_exe);
+                    ui.label("Guest Output:");
+                    ui.text_edit_singleline(&mut self.detonate_guest_out);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Guest User:");
+                    ui.text_edit_singleline(&mut self.detonate_user);
+                    ui.label("Guest Password:");
+                    ui.text_edit_singleline(&mut self.detonate_pass);
+                    ui.label("Host Destination:");
+                    ui.text_edit_singleline(&mut self.detonate_host_out);
+                });
+
+                ui.horizontal(|ui| {
+                    if ui.button("💥 Detonate & Disassemble in Airgap").clicked() {
+                        let shot_path = std::env::temp_dir()
+                            .join("vmcraft-detonate.png")
+                            .to_string_lossy()
+                            .to_string();
+                        self.shot_out = shot_path.clone();
+                        self.spawn_command(
+                            "Pipeline Detonate",
+                            Command::PipelineDetonate {
+                                vm: self.vm_name.clone(),
+                                user: self.detonate_user.clone(),
+                                pass: self.detonate_pass.clone(),
+                                keygen: if self.detonate_keygen.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(self.detonate_keygen.clone())
+                                },
+                                target_binary: self.detonate_target.clone(),
+                                disassembler_exe: self.detonate_disasm_exe.clone(),
+                                disassembler_args: vec![
+                                    "-B".to_string(),
+                                    format!("-o{}", self.detonate_guest_out),
+                                    "C:\\detonate\\target.bin".to_string(),
+                                ],
+                                guest_output: self.detonate_guest_out.clone(),
+                                host_output: self.detonate_host_out.clone(),
+                                screenshot: Some(shot_path),
+                                confirm: self.confirm(),
+                            },
+                        );
+                    }
+
+                    if ui.button("✂ Sever Network (Airgap Now)").clicked() {
+                        self.spawn_command(
+                            "Airgap Sever",
+                            Command::AirgapSet {
+                                vm: self.vm_name.clone(),
+                                disconnect: true,
+                            },
+                        );
+                    }
+
+                    if ui.button("🚨 Emergency Nuke & Purge VM").clicked() {
+                        self.spawn_command(
+                            "Emergency Nuke",
+                            Command::VmStop {
+                                vm: self.vm_name.clone(),
+                                force: true,
+                                confirm: self.confirm(),
+                            },
+                        );
+                    }
+                });
+
+                ui.separator();
+                ui.label(RichText::new("Detonation Progress & Telemetry:").strong());
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.vm_output)
+                            .desired_rows(12)
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                });
+            }
             Page::Sandbox => {
                 ui.heading("Ephemeral Sandbox Execution");
                 ui.label("Executes Python or PowerShell in an isolated 30s timeout sandbox.");
@@ -1008,6 +1132,7 @@ mod tests {
             Page::Network,
             Page::Disks,
             Page::Shot,
+            Page::Detonate,
             Page::Sandbox,
             Page::Commands,
             Page::Help,
@@ -1053,6 +1178,14 @@ mod tests {
             sandbox_code: String::new(),
             sandbox_output: String::new(),
             mutate_confirm: false,
+            detonate_keygen: String::new(),
+            detonate_target: String::new(),
+            detonate_disasm_exe: "ida64.exe".to_string(),
+            detonate_user: String::new(),
+            detonate_pass: String::new(),
+            detonate_guest_out: "C:\\detonate\\out.asm".to_string(),
+            detonate_host_out: "out.asm".to_string(),
+            detonate_airgap: true,
         };
 
         let sample_json = serde_json::json!({

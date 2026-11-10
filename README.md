@@ -2,7 +2,7 @@
 
 Pure-Rust ArtCraft Virtual Machine workstation for local virtualization management and agentic tooling. One unified Rust workspace providing an in-process core domain library (L1), a dual-mode human CLI and JSON-RPC Model Context Protocol (MCP) server (L2), and an interactive native egui desktop workstation (L3).
 
-Status: **v0.3.0, Tier 3** (L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+ & Hyper-V, ArtCraft Command Bus).
+Status: **v1.0.0, Tier 4** (L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+ & Hyper-V, ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation).
 
 - Changes: [CHANGELOG.md](CHANGELOG.md)
 - Conversion Dossier: [docs/CONVERSION_DOSSIER.md](docs/CONVERSION_DOSSIER.md)
@@ -40,6 +40,7 @@ Launch via:
 - **Disks Page**: Virtual disk image (`.vdi`) inspection and dynamic provisioning.
 - **Shot Page**: Framebuffer screenshot capture with live in-app PNG rendering directly inside the GUI.
 - **Sandbox Page**: Safe, isolated 30-second script runner for Python and PowerShell.
+- **Detonate Page**: Clean-room detonation and disassembly pipeline under hardware-level airgap. Supports automated snapshotting, keygen explosion, target binary injection, in-guest disassembly, non-executable artifact extraction, and auto-nuke/rollback.
 - **Commands Page**: Interactive ArtCraft command bus catalog and custom command dispatcher.
 - **Help & Safety**: Visual toggle for mutating operations gate.
 

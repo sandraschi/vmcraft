@@ -1,38 +1,35 @@
 # HANDOVER -- `vmcraft`
 
-**Last Updated:** 2026-11-10T12:20:00+01:00  
-**Current Phase:** Tier-3 Complete (v0.3.0) -> ArtCraft Command Bus + Multi-Hypervisor Desktop Workstation + MCP stdio Green
+**Last Updated:** 2026-11-10T22:45:00+01:00  
+**Current Phase:** Tier-4 Complete (v1.0.0) -> Clean-Room Detonation Pipeline + Hardware Airgap Isolation + Naked Install Verification + MCP stdio Green
 
 ## What Was Done
 - **L1 (`vmcraft-core`)**:
-  - Implemented ArtCraft Command Bus with 22 operations per `mcp-central-docs/standards/rust-artcraft/CRAFT_COMMAND_BUS.md`: `commands_catalog()`, `describe_command(id)`, `parse_command(id, params)`, and `dispatch(cmd)`.
-  - Added native Microsoft Hyper-V integration (`hyperv_probe`, `hyperv_list`, `hyperv_start`, `hyperv_stop`) using CIM query fallback.
-  - Multi-hypervisor `vm_list()` combines VirtualBox and Hyper-V instances with explicit `provider` attribution.
-  - Structured snapshot parsing into `{name, uuid, description}` objects.
-  - Mutating verbs safely gated behind explicit confirmation (`--yes` flag or `VMCRAFT_ALLOW_MUTATE=1`).
-  - Added Windows VirtualBox path pre-check in `vboxmanage_candidates` to directly discover `C:\Program Files\Oracle\VirtualBox\VBoxManage.exe`.
-  - Zero unwrap/panic discipline (`-D warnings` enforced across workspace).
+  - Implemented Airgap Isolation (`airgap_set`): Dynamically cuts physical/virtual link cables across adapters 1..4 (`setlinkstateN off`), disables shared clipboard (`clipboard mode disabled`), and blocks drag-and-drop (`draganddrop disabled`).
+  - Added Guest Control API: `guest_exec`, `guest_copyto`, and `guest_copyfrom` using native `VBoxManage guestcontrol` without relying on network shares.
+  - Implemented Reverse-Engineering Clean-Room Detonation Workflow (`pipeline_detonate`):
+    - Addresses operational security risk of poisoned/tainted patchers and keygens with delayed payloads (e.g. IDA Pro keygen).
+    - Hard air-gap disconnects network *before* running keygen.
+    - Copies disassembly target binary *into* the guest.
+    - Runs disassembler *inside* the isolated guest on the target binary.
+    - Extracts only non-executable disassembly output (`.asm` / text artifacts) back to the host.
+    - Unconditionally powers off and nukes the VM back to pre-detonation snapshot `craft-detonate-<ts>`.
+  - Implemented Naked Install Testing (`pipeline_naked_install`) to verify consumer installer experience on clean baseline VMs.
+  - Expanded ArtCraft Command Bus to 28 operations.
+  - Zero unwrap/panic discipline maintained across workspace.
 - **L2 (`vmcraft-mcp`)**:
-  - Pure JSON-RPC stdio implementation on stdout, operational logs on stderr.
-  - Full CLI command bus: `commands --json`, `describe <cmd>`, `run --cmd <id> [--params <json>]`, `batch --script <file>`.
-  - Native CLI subcommands for Hyper-V: `hyperv list`, `hyperv start`, `hyperv stop`.
-  - MCP tools: `vmcraft.commands`, `vmcraft.describe`, `vmcraft.run`, `vmcraft.hyperv_list`, `vmcraft.hyperv_start`, `vmcraft.hyperv_stop`, plus legacy compatibility aliases.
+  - Added CLI subcommands: `pipeline detonate`, `pipeline naked-test`, `airgap`, `guest run`, `guest copyto`, `guest copyfrom`.
+  - Added MCP tools: `vmcraft.pipeline_detonate`, `vmcraft.pipeline_naked_install`, `vmcraft.airgap_set`, `vmcraft.guest_exec`, `vmcraft.guest_copyto`, `vmcraft.guest_copyfrom`.
+  - Enforced strict confirmation gate (`--yes` or `VMCRAFT_ALLOW_MUTATE=1`) on all mutating operations.
 - **L3 (`vmcraft-app`)**:
-  - Pure Rust eframe/egui workstation with 9 tabs: Dashboard, VMs, Snapshots, Network, Disks, Shot, Sandbox, Commands, Help.
-  - Commands tab: Interactive ArtCraft Command Bus registry explorer and test dispatcher.
-  - Multi-hypervisor support in Dashboard: Provider badges (`VirtualBox` in amber, `Hyper-V` in cyan) and provider-specific actions.
-  - Snapshots tab: Structured snapshot tree table with instant `Restore` and `Delete` actions.
-  - Shot tab: In-app framebuffer viewer using `image` decoding to render live guest screenshots directly inside the GUI.
-  - Decoupled asynchronous architecture using `tokio::runtime` and `mpsc::channel`, eliminating UI thread blocking.
-  - Startup polling: automatically detects both VirtualBox and Hyper-V hypervisors on launch.
-- **Cleanups**:
-  - Removed obsolete installer NSIS files (vmcraft is a pure ArtCraft application, not an installer-bundled utility).
+  - Added 10th tab **Detonate**: Clean-room detonation interface for untrusted patchers/keygens with input fields for guest credentials, keygen path, target binary, disassembler executable, and output paths.
+  - Action buttons: "💥 Detonate & Disassemble in Airgap", "✂ Sever Network Link", "🔌 Reconnect Network", and "🚨 Emergency Nuke & Rollback".
 - **Verification**:
-  - Live Oracle + Hyper-V verified on Goliath: 3 VirtualBox VMs (`win11-automated`, `ubu-2404-lts`, `batocera-clean`) and 1 Hyper-V VM (`podman-machine-default`).
-  - All 27 workspace tests green (`cargo test --workspace`).
+  - 30 unit/integration tests passing (`cargo test --workspace`).
   - Clippy check clean (`cargo clippy --workspace --all-targets --all-features -- -D warnings`).
   - Formatter clean (`cargo fmt --check`).
-  - Smoke binary passes in both debug and release profiles.
+  - Desktop smoke test passed (`cargo run -p vmcraft-app -- --smoke`).
+
 
 ## Next Concrete Actions
 1. Add optional QEMU/KVM provider alongside VirtualBox and Hyper-V if requested.

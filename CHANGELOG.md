@@ -1,5 +1,38 @@
 # Changelog — vmcraft
 
+## [2026-11-10] v1.0.0 Tier-4 Clean-Room Detonation Pipeline & Airgap Isolation
+- L1 (`vmcraft-core`):
+  - Airgap Engine (`airgap_set`): Disconnects all virtual network adapter link cables in real-time (`setlinkstate1..4 off`), disables shared clipboard (`clipboard mode disabled`), and blocks drag-and-drop (`draganddrop disabled`).
+  - Guest Control Execution: Added `guest_exec` (`VBoxManage guestcontrol run`), `guest_copyto` (`guestcontrol copyto`), and `guest_copyfrom` (`guestcontrol copyfrom`) for direct guest orchestration without network shares.
+  - Reverse-Engineering Detonation Workflow (`pipeline_detonate`):
+    - Automates clean-room detonation for untrusted patchers/keygens (e.g., IDA Pro keygen).
+    - 1. Takes pre-detonation snapshot `craft-detonate-<ts>`.
+    - 2. Powers on VM headlessly and settles guest additions.
+    - 3. Hard severs virtual network link cables, clipboard, and drag-and-drop before any payload execution.
+    - 4. Copies untrusted keygen/patcher into guest and detonates payload.
+    - 5. Injects user-specified target binary into the guest.
+    - 6. Executes the potentially tainted disassembler (`ida64.exe` batch mode) *strictly inside* the air-gapped guest.
+    - 7. Extracts only safe disassembly output (`.asm` / text artifacts) back to the host.
+    - 8. Captures post-analysis screenshot for inspection.
+    - 9. RAII unconditional nuke: Powers down guest and rolls back VM state to pristine pre-detonation snapshot.
+  - Consumer Naked Install Verification (`pipeline_naked_install`):
+    - Clones/tests target repository in a pristine Windows baseline VM to verify zero-dependency consumer install experiences.
+  - Command Bus: Registered `airgap.set`, `guest.exec`, `guest.copyto`, `guest.copyfrom`, `pipeline.detonate`, `pipeline.naked_install` (28 commands total in catalog).
+- L2 (`vmcraft-mcp`):
+  - CLI Subcommands: Added `pipeline detonate`, `pipeline naked-test`, `airgap`, and `guest` subcommands.
+  - MCP Tools: Added `vmcraft.pipeline_detonate`, `vmcraft.pipeline_naked_install`, `vmcraft.airgap_set`, `vmcraft.guest_exec`, `vmcraft.guest_copyto`, and `vmcraft.guest_copyfrom`.
+  - Safety Gates: Enforced `--yes` / `VMCRAFT_ALLOW_MUTATE=1` confirmation for all detonation, airgap, and guest operations.
+- L3 (`vmcraft-app`):
+  - Added **Detonate Tab** (10th tab in desktop app):
+    - Interactive clean-room detonation studio.
+    - Live target VM selection, guest credentials, keygen path, target binary, disassembler executable, and guest/host output paths.
+    - Direct buttons for "💥 Detonate & Disassemble in Airgap", "✂ Sever Network Link", "🔌 Reconnect Network", and "🚨 Emergency Nuke & Rollback".
+- Gates:
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`: 0 warnings, zero unwraps/panics.
+  - `cargo test --workspace`: 30 passed (21 core + 7 mcp + 2 app).
+  - `cargo fmt --check`: clean.
+  - Smoke binary passes in debug and release.
+
 ## [2026-11-10] v0.3.0 Tier-3 ArtCraft command bus and multi-hypervisor workstation
 - L1 (`vmcraft-core`):
   - ArtCraft Command Bus: Added `commands_catalog()` (22 commands), `describe_command(id)`, and `parse_command(id, params)` conforming to `mcp-central-docs/standards/rust-artcraft/CRAFT_COMMAND_BUS.md`.

@@ -6,6 +6,7 @@ pub mod creds;
 pub mod error;
 pub mod import;
 pub mod llm;
+pub mod pipeline;
 pub mod vm;
 
 use serde_json::{json, Value};
@@ -33,6 +34,12 @@ pub const CMD_SANDBOX_RUN: &str = "vmcraft.sandbox_run";
 pub const CMD_HYPERV_LIST: &str = "vmcraft.hyperv_list";
 pub const CMD_HYPERV_START: &str = "vmcraft.hyperv_start";
 pub const CMD_HYPERV_STOP: &str = "vmcraft.hyperv_stop";
+pub const CMD_AIRGAP_SET: &str = "vmcraft.airgap_set";
+pub const CMD_GUEST_EXEC: &str = "vmcraft.guest_exec";
+pub const CMD_GUEST_COPYTO: &str = "vmcraft.guest_copyto";
+pub const CMD_GUEST_COPYFROM: &str = "vmcraft.guest_copyfrom";
+pub const CMD_PIPELINE_DETONATE: &str = "vmcraft.pipeline_detonate";
+pub const CMD_PIPELINE_NAKED_INSTALL: &str = "vmcraft.pipeline_naked_install";
 
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -115,6 +122,50 @@ pub enum Command {
         force: bool,
         confirm: bool,
     },
+    AirgapSet {
+        vm: String,
+        disconnect: bool,
+    },
+    GuestExec {
+        vm: String,
+        user: String,
+        pass: String,
+        exe: String,
+        args: Vec<String>,
+        timeout_secs: Option<u64>,
+    },
+    GuestCopyTo {
+        vm: String,
+        user: String,
+        pass: String,
+        host_src: String,
+        guest_dest: String,
+    },
+    GuestCopyFrom {
+        vm: String,
+        user: String,
+        pass: String,
+        guest_src: String,
+        host_dest: String,
+    },
+    PipelineDetonate {
+        vm: String,
+        user: String,
+        pass: String,
+        keygen: Option<String>,
+        target_binary: String,
+        disassembler_exe: String,
+        disassembler_args: Vec<String>,
+        guest_output: String,
+        host_output: String,
+        screenshot: Option<String>,
+        confirm: bool,
+    },
+    PipelineNakedInstall {
+        repo: String,
+        baseline_vm: Option<String>,
+        confirm: bool,
+    },
     BridgeEvent {
         title: String,
         summary: String,
@@ -164,6 +215,62 @@ pub async fn dispatch(cmd: Command) -> Value {
         Command::HypervList => vm::hyperv_list().await,
         Command::HypervStart { vm, confirm } => vm::hyperv_start(&vm, confirm).await,
         Command::HypervStop { vm, force, confirm } => vm::hyperv_stop(&vm, force, confirm).await,
+        Command::AirgapSet { vm, disconnect } => pipeline::airgap_set(&vm, disconnect).await,
+        Command::GuestExec {
+            vm,
+            user,
+            pass,
+            exe,
+            args,
+            timeout_secs,
+        } => pipeline::guest_exec(&vm, &user, &pass, &exe, &args, timeout_secs).await,
+        Command::GuestCopyTo {
+            vm,
+            user,
+            pass,
+            host_src,
+            guest_dest,
+        } => pipeline::guest_copyto(&vm, &user, &pass, &host_src, &guest_dest).await,
+        Command::GuestCopyFrom {
+            vm,
+            user,
+            pass,
+            guest_src,
+            host_dest,
+        } => pipeline::guest_copyfrom(&vm, &user, &pass, &guest_src, &host_dest).await,
+        Command::PipelineDetonate {
+            vm,
+            user,
+            pass,
+            keygen,
+            target_binary,
+            disassembler_exe,
+            disassembler_args,
+            guest_output,
+            host_output,
+            screenshot,
+            confirm,
+        } => {
+            pipeline::pipeline_detonate(pipeline::DetonatePipelineParams {
+                vm,
+                user,
+                pass,
+                keygen,
+                target_binary,
+                disassembler_exe,
+                disassembler_args,
+                guest_output,
+                host_output,
+                screenshot,
+                confirm,
+            })
+            .await
+        }
+        Command::PipelineNakedInstall {
+            repo,
+            baseline_vm,
+            confirm,
+        } => pipeline::pipeline_naked_install(&repo, baseline_vm.as_deref(), confirm).await,
         Command::BridgeEvent { title, summary } => {
             json!({"tool": "bridge.event", "status": "ok", "title": title, "summary": summary})
         }
@@ -360,6 +467,80 @@ pub fn commands_catalog() -> Value {
                 "force": "boolean (default: false)",
                 "confirm": "boolean (default: false)"
             }
+        },
+        {
+            "id": "airgap.set",
+            "label": "Set Airgap Isolation",
+            "description": "Enforce or release physical network disconnection, clipboard disable, and drag-and-drop block",
+            "params": {
+                "vm": "string",
+                "disconnect": "boolean (default: true)"
+            }
+        },
+        {
+            "id": "guest.exec",
+            "label": "Execute Inside Guest",
+            "description": "Run a program inside the guest VM via Guest Additions",
+            "params": {
+                "vm": "string",
+                "user": "string",
+                "pass": "string",
+                "exe": "string",
+                "args": "array of strings",
+                "timeout_secs": "number (default: 60)"
+            }
+        },
+        {
+            "id": "guest.copyto",
+            "label": "Copy File to Guest",
+            "description": "Copy a file from host system into guest virtual machine",
+            "params": {
+                "vm": "string",
+                "user": "string",
+                "pass": "string",
+                "host_src": "string",
+                "guest_dest": "string"
+            }
+        },
+        {
+            "id": "guest.copyfrom",
+            "label": "Copy File from Guest",
+            "description": "Extract a file from guest virtual machine back to host system",
+            "params": {
+                "vm": "string",
+                "user": "string",
+                "pass": "string",
+                "guest_src": "string",
+                "host_dest": "string"
+            }
+        },
+        {
+            "id": "pipeline.detonate",
+            "label": "Detonate & Disassemble in Sandbox",
+            "description": "Clean-room execution of keygen/untrusted binary under airgap, in-guest disassembler execution, clean artifact extraction, and auto-rollback",
+            "params": {
+                "vm": "string",
+                "user": "string",
+                "pass": "string",
+                "keygen": "string (optional)",
+                "target_binary": "string",
+                "disassembler_exe": "string (default: ida64.exe)",
+                "disassembler_args": "array of strings",
+                "guest_output": "string",
+                "host_output": "string",
+                "screenshot": "string (optional)",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "pipeline.naked_install",
+            "label": "Naked Install Test",
+            "description": "Automated clean-room consumer install test for repo on pristine Windows baseline",
+            "params": {
+                "repo": "string",
+                "baseline_vm": "string (optional)",
+                "confirm": "boolean (default: false)"
+            }
         }
     ])
 }
@@ -367,15 +548,14 @@ pub fn commands_catalog() -> Value {
 pub fn describe_command(cmd_id: &str) -> Option<Value> {
     let clean = cmd_id
         .trim()
-        .trim_start_matches("vmcraft.")
-        .replace('_', ".");
+        .trim_start_matches("vmcraft.");
     let catalog = commands_catalog();
     let arr = catalog.as_array()?;
     arr.iter()
         .find(|item| {
             item.get("id")
                 .and_then(|v| v.as_str())
-                .map(|id| id == clean)
+                .map(|id| id == clean || id == cmd_id.trim())
                 .unwrap_or(false)
         })
         .cloned()
@@ -632,6 +812,217 @@ pub fn parse_command(id: &str, params: &Value) -> Result<Command, String> {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             Ok(Command::HypervStop { vm, force, confirm })
+        }
+        "airgap.set" | "airgap" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let disconnect = params
+                .get("disconnect")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            Ok(Command::AirgapSet { vm, disconnect })
+        }
+        "guest.exec" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let user = params
+                .get("user")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let pass = params
+                .get("pass")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let exe = params
+                .get("exe")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let args = params
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let timeout_secs = params.get("timeout_secs").and_then(|v| v.as_u64());
+            Ok(Command::GuestExec {
+                vm,
+                user,
+                pass,
+                exe,
+                args,
+                timeout_secs,
+            })
+        }
+        "guest.copyto" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let user = params
+                .get("user")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let pass = params
+                .get("pass")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let host_src = params
+                .get("host_src")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let guest_dest = params
+                .get("guest_dest")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Ok(Command::GuestCopyTo {
+                vm,
+                user,
+                pass,
+                host_src,
+                guest_dest,
+            })
+        }
+        "guest.copyfrom" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let user = params
+                .get("user")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let pass = params
+                .get("pass")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let guest_src = params
+                .get("guest_src")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let host_dest = params
+                .get("host_dest")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Ok(Command::GuestCopyFrom {
+                vm,
+                user,
+                pass,
+                guest_src,
+                host_dest,
+            })
+        }
+        "pipeline.detonate" | "detonate" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let user = params
+                .get("user")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let pass = params
+                .get("pass")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let keygen = params
+                .get("keygen")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let target_binary = params
+                .get("target_binary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let disassembler_exe = params
+                .get("disassembler_exe")
+                .and_then(|v| v.as_str())
+                .unwrap_or("ida64.exe")
+                .to_string();
+            let disassembler_args = params
+                .get("disassembler_args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let guest_output = params
+                .get("guest_output")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let host_output = params
+                .get("host_output")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let screenshot = params
+                .get("screenshot")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::PipelineDetonate {
+                vm,
+                user,
+                pass,
+                keygen,
+                target_binary,
+                disassembler_exe,
+                disassembler_args,
+                guest_output,
+                host_output,
+                screenshot,
+                confirm,
+            })
+        }
+        "pipeline.naked_install" | "naked_install" | "naked_test" => {
+            let repo = params
+                .get("repo")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let baseline_vm = params
+                .get("baseline_vm")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::PipelineNakedInstall {
+                repo,
+                baseline_vm,
+                confirm,
+            })
         }
         _ => Err(format!("unknown command id '{id}'")),
     }
