@@ -2,7 +2,7 @@
 
 Pure-Rust ArtCraft Virtual Machine workstation for local virtualization management and agentic tooling. One unified Rust workspace providing an in-process core domain library (L1), a dual-mode human CLI and JSON-RPC Model Context Protocol (MCP) server (L2), and an interactive native egui desktop workstation (L3).
 
-Status: **v0.2.1, Tier 2** (L1 core + L2 CLI/MCP + L3 egui desktop app, live Oracle verified on Windows with VirtualBox 7+).
+Status: **v0.3.0, Tier 3** (L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+ & Hyper-V, ArtCraft Command Bus).
 
 - Changes: [CHANGELOG.md](CHANGELOG.md)
 - Conversion Dossier: [docs/CONVERSION_DOSSIER.md](docs/CONVERSION_DOSSIER.md)
@@ -16,9 +16,9 @@ Status: **v0.2.1, Tier 2** (L1 core + L2 CLI/MCP + L3 egui desktop app, live Ora
 
 | Crate | Layer | Purpose |
 |---|---|---|
-| `crates/vmcraft-core` | L1 | In-process command dispatch bus (`Command::dispatch`), VBoxManage subprocess orchestration, Hyper-V probe, ephemeral sandbox execution, strict input validators. |
-| `crates/vmcraft-mcp` | L2 | Binary providing both human CLI subcommands and standard Model Context Protocol (MCP) JSON-RPC stdio. Dual-aliased to support both modern `vmcraft.*` names and legacy portmanteaus (`vm_management`, `snapshot_management`, etc.). |
-| `crates/vmcraft-app` | L3 | Native eframe/egui desktop application with 8 functional tabs, non-blocking asynchronous message passing (`mpsc::channel`), live VM table, and safety gating. |
+| `crates/vmcraft-core` | L1 | In-process command dispatch bus (`Command::dispatch`), ArtCraft command bus registry (`commands_catalog`, `describe_command`, `parse_command`), VBoxManage orchestration, Hyper-V CIM probe, ephemeral sandbox execution, strict input validators. |
+| `crates/vmcraft-mcp` | L2 | Binary providing human CLI subcommands (`commands --json`, `describe`, `run`, `batch`, `vm`, `hyperv`, `snapshot`, etc.) and standard Model Context Protocol (MCP) JSON-RPC stdio. Dual-aliased to support both modern `vmcraft.*` names and legacy portmanteaus (`vm_management`, `snapshot_management`, `hyperv_management`, etc.). |
+| `crates/vmcraft-app` | L3 | Native eframe/egui desktop application with 9 functional tabs, non-blocking asynchronous message passing (`mpsc::channel`), live multi-hypervisor VM table, snapshot tree controls, in-app framebuffer image viewer, command bus explorer, and safety gating. |
 
 ---
 
@@ -32,14 +32,15 @@ Launch via:
 ```
 
 ### Features
-- **Instant Background Discovery**: Automatically polls hypervisor status, VM list, and host templates upon opening without blocking the UI thread.
-- **Dashboard**: Live VM overview table showing VM Name, UUID, and instant action buttons (`Select`, `Info`, `Start`, `Stop`), plus an activity log.
+- **Instant Background Discovery**: Automatically polls hypervisors (VirtualBox + Hyper-V), VM list, and host templates upon opening without blocking the UI thread.
+- **Dashboard**: Live multi-hypervisor VM overview table showing VM Name, Provider (`VirtualBox` in amber, `Hyper-V` in cyan), UUID, and instant action buttons (`Select`, `Info`, `Start`, `Stop`), plus an activity log.
 - **VMs Page**: Quick target selector bar, VM configuration form, start/stop/create/delete controls, and detailed hardware inspect output.
-- **Snapshots Page**: Point-in-time snapshot listing, creation, restoration, and deletion.
+- **Snapshots Page**: Point-in-time snapshot listing in a structured table, with one-click `Restore` and `Delete` per snapshot.
 - **Network Page**: VirtualBox host-only network interface management (`list`, `create`, `remove`).
 - **Disks Page**: Virtual disk image (`.vdi`) inspection and dynamic provisioning.
-- **Shot Page**: Framebuffer screenshot capture directly into PNG files for running VMs.
+- **Shot Page**: Framebuffer screenshot capture with live in-app PNG rendering directly inside the GUI.
 - **Sandbox Page**: Safe, isolated 30-second script runner for Python and PowerShell.
+- **Commands Page**: Interactive ArtCraft command bus catalog and custom command dispatcher.
 - **Help & Safety**: Visual toggle for mutating operations gate.
 
 ---

@@ -1,5 +1,29 @@
 # Changelog — vmcraft
 
+## [2026-11-10] v0.3.0 Tier-3 ArtCraft command bus and multi-hypervisor workstation
+- L1 (`vmcraft-core`):
+  - ArtCraft Command Bus: Added `commands_catalog()` (22 commands), `describe_command(id)`, and `parse_command(id, params)` conforming to `mcp-central-docs/standards/rust-artcraft/CRAFT_COMMAND_BUS.md`.
+  - Multi-Hypervisor: Added native Windows Hyper-V integration (`hyperv_probe`, `hyperv_list`, `hyperv_start`, `hyperv_stop`) via PowerShell CIM querying without requiring external modules.
+  - Multi-Hypervisor VM list: Aggregates both VirtualBox and Hyper-V machines with explicit provider tags (`virtualbox` vs `hyperv`).
+  - Structured Snapshots: Parsed machine-readable snapshot hierarchy into structured records `[{name, uuid, description}]`.
+- L2 (`vmcraft-mcp`):
+  - CLI Command Bus: Added `commands --json`, `describe <id>`, `run --cmd <id> [--params <json>]`, and `batch --script <file>` subcommands.
+  - CLI Hyper-V: Added `hyperv list|start|stop` subcommands with `--yes` safety confirmation.
+  - MCP Tools: Added `vmcraft.commands`, `vmcraft.describe`, `vmcraft.run`, `vmcraft.hyperv_list`, `vmcraft.hyperv_start`, `vmcraft.hyperv_stop`, and backward-compatible `hyperv_management` routing.
+- L3 (`vmcraft-app`):
+  - Added Commands Bus Tab: Interactive registry browser and in-app command dispatcher.
+  - Multi-Hypervisor Dashboard: VM table renders provider badges (`VirtualBox` in amber, `Hyper-V` in cyan) with provider-specific start/stop/info actions.
+  - Top Bar Status: Displays presence and health of both VirtualBox and Hyper-V hypervisors.
+  - Snapshots Tab: Structured interactive table with direct Restore and Delete buttons per snapshot.
+  - Shot Tab: In-app framebuffer viewer using `image` decoding to render live guest screenshots directly inside the GUI without external viewers.
+- Cleanups:
+  - Removed stale installer NSIS configuration per ArtCraft application standard (no NSIS bundle required).
+- Gates:
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`: 0 warnings, zero unwraps/panics.
+  - `cargo test --workspace`: 27 passed (19 core + 6 mcp + 2 app).
+  - `cargo fmt --check`: clean.
+  - Smoke binary passes in debug and release.
+
 ## [2026-11-10] v0.2.1 Fix startup freeze and auto-load VM list in L3 workstation app
 - L3: Non-blocking async channels (`mpsc::channel`) decoupled from egui UI loop, eliminating thread blocks from synchronous `block_on`.
 - L3: Auto-refresh on startup immediately queries `vmcraft.status`, `vmcraft.vm_list`, and `vmcraft.host_info`, ending the "stuck in starting… with empty VM list" condition.

@@ -1,6 +1,6 @@
 # vmcraft — Pure-Rust ArtCraft VM workstation (Bucket A)
 
-**Status:** Tier-2 complete (v0.2.1 stamped 2026-11-10), L3 desktop workstation verified live on Goliath.
+**Status:** Tier-3 complete (v0.3.0 stamped 2026-11-10), multi-hypervisor (VirtualBox + Hyper-V) & ArtCraft command bus verified live on Goliath.
 **Legacy (READ-ONLY):** `D:\Dev\repos\virtualization-mcp` @ `master@c5c9a8d`.
 **Target:** `D:\Dev\repos\vmcraft` — `vmcraft-core` (L1) + `vmcraft-mcp` (L2 CLI+stdio) + `vmcraft-app` (L3 egui).
 
