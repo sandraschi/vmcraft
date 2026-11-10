@@ -3,7 +3,7 @@
 
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
-use vmcraft_core::{dispatch, Command};
+use vmcraft_core::{commands_catalog, describe_command, dispatch, parse_command, Command};
 
 #[derive(Parser, Debug)]
 #[command(name = "vmcraft-mcp", version)]
@@ -15,6 +15,23 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Top {
     Status,
+    Commands {
+        #[arg(long)]
+        json: bool,
+    },
+    Describe {
+        cmd: String,
+    },
+    Run {
+        #[arg(long)]
+        cmd: String,
+        #[arg(long)]
+        params: Option<String>,
+    },
+    Batch {
+        #[arg(long)]
+        script: String,
+    },
     Vm {
         #[command(subcommand)]
         op: VmOp,
@@ -44,6 +61,10 @@ enum Top {
     Sandbox {
         #[command(subcommand)]
         op: SandboxOp,
+    },
+    Hyperv {
+        #[command(subcommand)]
+        op: HypervOp,
     },
     Tools,
     Mcp,
@@ -184,6 +205,28 @@ enum SandboxOp {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum HypervOp {
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    Start {
+        #[arg(long)]
+        vm: String,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+    Stop {
+        #[arg(long)]
+        vm: String,
+        #[arg(long, default_value_t = false)]
+        force: bool,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+}
+
 fn print_json(v: &Value) {
     println!(
         "{}",
@@ -193,8 +236,11 @@ fn print_json(v: &Value) {
 
 fn tools_list() -> Value {
     json!({"tools": [
+        {"name": "vmcraft.commands", "description": "Command bus catalog for automation"},
+        {"name": "vmcraft.describe", "description": "Describe command parameters and semantics"},
+        {"name": "vmcraft.run", "description": "Execute command bus instruction"},
         {"name": "vmcraft.status", "description": "Daemon status + hypervisor presence"},
-        {"name": "vmcraft_vm_list", "description": "List VirtualBox VMs (read-only)"},
+        {"name": "vmcraft_vm_list", "description": "List VirtualBox and Hyper-V VMs (read-only)"},
         {"name": "vmcraft_vm_info", "description": "VM info (read-only)"},
         {"name": "vmcraft_vm_create", "description": "Create+register VM (needs --yes / allow)"},
         {"name": "vmcraft_vm_start", "description": "Start VM headless (needs --yes / allow)"},
@@ -211,7 +257,10 @@ fn tools_list() -> Value {
         {"name": "vmcraft_disk_create", "description": "Create .vdi (needs --yes / allow)"},
         {"name": "vmcraft_vm_shot", "description": "Screenshot running VM to PNG (read-only, VM must run)"},
         {"name": "vmcraft_host_info", "description": "Host info (read-only)"},
-        {"name": "vmcraft_sandbox_run", "description": "Ephemeral code run, 30s timeout"}
+        {"name": "vmcraft_sandbox_run", "description": "Ephemeral code run, 30s timeout"},
+        {"name": "vmcraft.hyperv_list", "description": "List Hyper-V VMs (read-only)"},
+        {"name": "vmcraft.hyperv_start", "description": "Start Hyper-V VM (needs --yes / allow)"},
+        {"name": "vmcraft.hyperv_stop", "description": "Stop Hyper-V VM (needs --yes / allow)"}
     ]})
 }
 
@@ -357,6 +406,67 @@ async fn call_tool(name: &str, args: &Value) -> Value {
             })
             .await
         }
+        "vmcraft.commands" => commands_catalog(),
+        "vmcraft.describe" => {
+            let cmd_name = s("cmd");
+            match describe_command(&cmd_name) {
+                Some(d) => d,
+                None => {
+                    json!({"status": "error", "reason": format!("command not found: {cmd_name}")})
+                }
+            }
+        }
+        "vmcraft.run" => {
+            let cmd_name = s("cmd");
+            let params = args.get("params").cloned().unwrap_or(json!({}));
+            match parse_command(&cmd_name, &params) {
+                Ok(c) => dispatch(c).await,
+                Err(e) => json!({"status": "error", "reason": e}),
+            }
+        }
+        "vmcraft.hyperv_list" | "vmcraft_hyperv_list" => dispatch(Command::HypervList).await,
+        "vmcraft.hyperv_start" | "vmcraft_hyperv_start" => {
+            dispatch(Command::HypervStart {
+                vm: s("vm"),
+                confirm: b(args, "confirm") || b(args, "yes"),
+            })
+            .await
+        }
+        "vmcraft.hyperv_stop" | "vmcraft_hyperv_stop" => {
+            dispatch(Command::HypervStop {
+                vm: s("vm"),
+                force: b(args, "force"),
+                confirm: b(args, "confirm") || b(args, "yes"),
+            })
+            .await
+        }
+        "hyperv_management" => {
+            let op = args
+                .get("operation")
+                .and_then(|v| v.as_str())
+                .unwrap_or("list");
+            match op {
+                "list" => dispatch(Command::HypervList).await,
+                "start" => {
+                    dispatch(Command::HypervStart {
+                        vm: s("vm"),
+                        confirm: b(args, "confirm") || b(args, "yes"),
+                    })
+                    .await
+                }
+                "stop" => {
+                    dispatch(Command::HypervStop {
+                        vm: s("vm"),
+                        force: b(args, "force"),
+                        confirm: b(args, "confirm") || b(args, "yes"),
+                    })
+                    .await
+                }
+                _ => {
+                    json!({"status": "error", "reason": format!("unknown hyperv operation: {op}")})
+                }
+            }
+        }
         _ => {
             json!({"content": [{"type": "text", "text": format!("unknown tool: {name}")}], "isError": true})
         }
@@ -438,6 +548,84 @@ async fn main() {
     let cli = Cli::parse();
     match cli.cmd {
         None | Some(Top::Status) => print_json(&dispatch(Command::Status).await),
+        Some(Top::Commands { .. }) => print_json(&commands_catalog()),
+        Some(Top::Describe { cmd }) => match describe_command(&cmd) {
+            Some(d) => print_json(&d),
+            None => print_json(
+                &json!({"status": "error", "reason": format!("command not found: {cmd}")}),
+            ),
+        },
+        Some(Top::Run { cmd, params }) => {
+            let (cmd_id, params_val) = if let Some(p_str) = params {
+                let p_val: Value = serde_json::from_str(&p_str).unwrap_or(json!({}));
+                (cmd, p_val)
+            } else if let Some(pos) = cmd.find('=') {
+                let id = cmd[..pos].to_string();
+                let p_val: Value = serde_json::from_str(&cmd[pos + 1..]).unwrap_or(json!({}));
+                (id, p_val)
+            } else {
+                (cmd, json!({}))
+            };
+            match parse_command(&cmd_id, &params_val) {
+                Ok(c) => print_json(&dispatch(c).await),
+                Err(e) => print_json(&json!({"status": "error", "reason": e})),
+            }
+        }
+        Some(Top::Batch { script }) => match std::fs::read_to_string(&script) {
+            Ok(content) => {
+                let mut results = Vec::new();
+                if let Ok(Value::Array(items)) = serde_json::from_str::<Value>(&content) {
+                    for item in items {
+                        if let Some(cmd_id) = item.get("cmd").and_then(|v| v.as_str()) {
+                            let params = item.get("params").cloned().unwrap_or(json!({}));
+                            match parse_command(cmd_id, &params) {
+                                Ok(c) => results.push(dispatch(c).await),
+                                Err(e) => results
+                                    .push(json!({"status": "error", "cmd": cmd_id, "reason": e})),
+                            }
+                        }
+                    }
+                } else {
+                    for line in content.lines() {
+                        let line = line.trim();
+                        if line.is_empty() || line.starts_with('#') {
+                            continue;
+                        }
+                        if let Ok(item) = serde_json::from_str::<Value>(line) {
+                            if let Some(cmd_id) = item.get("cmd").and_then(|v| v.as_str()) {
+                                let params = item.get("params").cloned().unwrap_or(json!({}));
+                                match parse_command(cmd_id, &params) {
+                                    Ok(c) => results.push(dispatch(c).await),
+                                    Err(e) => results.push(
+                                        json!({"status": "error", "cmd": cmd_id, "reason": e}),
+                                    ),
+                                }
+                            }
+                        }
+                    }
+                }
+                print_json(
+                    &json!({"status": "ok", "script": script, "count": results.len(), "results": results}),
+                );
+            }
+            Err(e) => print_json(
+                &json!({"status": "error", "reason": format!("cannot read script: {e}")}),
+            ),
+        },
+        Some(Top::Hyperv { op }) => match op {
+            HypervOp::List { .. } => print_json(&dispatch(Command::HypervList).await),
+            HypervOp::Start { vm, yes } => {
+                print_json(&dispatch(Command::HypervStart { vm, confirm: yes }).await)
+            }
+            HypervOp::Stop { vm, force, yes } => print_json(
+                &dispatch(Command::HypervStop {
+                    vm,
+                    force,
+                    confirm: yes,
+                })
+                .await,
+            ),
+        },
         Some(Top::Vm { op }) => match op {
             VmOp::List { limit, .. } => print_json(&dispatch(Command::VmList { limit }).await),
             VmOp::Info { vm, .. } => print_json(&dispatch(Command::VmInfo { vm }).await),
@@ -577,5 +765,26 @@ mod tests {
                 .unwrap_or("")
                 .contains("--yes"));
         }
+    }
+
+    #[tokio::test]
+    async fn craft_command_bus_tools_work() {
+        let catalog = call_tool("vmcraft.commands", &json!({})).await;
+        assert!(catalog.as_array().map(|a| a.len() >= 15).unwrap_or(false));
+
+        let desc = call_tool("vmcraft.describe", &json!({"cmd": "vm.list"})).await;
+        assert_eq!(desc.get("id"), Some(&json!("vm.list")));
+
+        let run_res = call_tool("vmcraft.run", &json!({"cmd": "status"})).await;
+        assert!(run_res.get("tool").is_some());
+    }
+
+    #[tokio::test]
+    async fn hyperv_tool_routes() {
+        let res = call_tool("vmcraft.hyperv_list", &json!({})).await;
+        assert!(res.get("tool").is_some());
+
+        let alias_res = call_tool("hyperv_management", &json!({"operation": "list"})).await;
+        assert!(alias_res.get("tool").is_some());
     }
 }

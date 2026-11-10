@@ -30,6 +30,9 @@ pub const CMD_DISK_CREATE: &str = "vmcraft.disk_create";
 pub const CMD_VM_SHOT: &str = "vmcraft.vm_shot";
 pub const CMD_HOST_INFO: &str = "vmcraft.host_info";
 pub const CMD_SANDBOX_RUN: &str = "vmcraft.sandbox_run";
+pub const CMD_HYPERV_LIST: &str = "vmcraft.hyperv_list";
+pub const CMD_HYPERV_START: &str = "vmcraft.hyperv_start";
+pub const CMD_HYPERV_STOP: &str = "vmcraft.hyperv_stop";
 
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -102,6 +105,16 @@ pub enum Command {
         lang: String,
         code: String,
     },
+    HypervList,
+    HypervStart {
+        vm: String,
+        confirm: bool,
+    },
+    HypervStop {
+        vm: String,
+        force: bool,
+        confirm: bool,
+    },
     BridgeEvent {
         title: String,
         summary: String,
@@ -148,9 +161,479 @@ pub async fn dispatch(cmd: Command) -> Value {
         Command::VmShot { vm, out } => vm::vm_shot(&vm, &out).await,
         Command::HostInfo => vm::host_info().await,
         Command::SandboxRun { lang, code } => vm::sandbox_run(&lang, &code).await,
+        Command::HypervList => vm::hyperv_list().await,
+        Command::HypervStart { vm, confirm } => vm::hyperv_start(&vm, confirm).await,
+        Command::HypervStop { vm, force, confirm } => vm::hyperv_stop(&vm, force, confirm).await,
         Command::BridgeEvent { title, summary } => {
             json!({"tool": "bridge.event", "status": "ok", "title": title, "summary": summary})
         }
+    }
+}
+
+pub fn commands_catalog() -> Value {
+    json!([
+        {
+            "id": "status",
+            "label": "App Status",
+            "description": "Show vmcraft hypervisor presence, daemon state, and mutation policy",
+            "params": {}
+        },
+        {
+            "id": "vm.list",
+            "label": "List Virtual Machines",
+            "description": "List registered VirtualBox and Hyper-V virtual machines",
+            "params": {
+                "limit": "number (optional)"
+            }
+        },
+        {
+            "id": "vm.info",
+            "label": "Virtual Machine Info",
+            "description": "Retrieve comprehensive machine-readable hardware and state metadata for a VM",
+            "params": {
+                "vm": "string (name or uuid)"
+            }
+        },
+        {
+            "id": "vm.create",
+            "label": "Create Virtual Machine",
+            "description": "Provision and register a new VM with guest OS type and RAM allocation",
+            "params": {
+                "vm": "string",
+                "ostype": "string (default: Ubuntu_64)",
+                "memory_mb": "number (default: 4096)",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "vm.start",
+            "label": "Start Virtual Machine",
+            "description": "Boot an existing virtual machine headless",
+            "params": {
+                "vm": "string",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "vm.stop",
+            "label": "Stop Virtual Machine",
+            "description": "Power off or gracefully ACPI-shutdown a running VM",
+            "params": {
+                "vm": "string",
+                "force": "boolean (default: false)",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "vm.delete",
+            "label": "Delete Virtual Machine",
+            "description": "Unregister and permanently delete a virtual machine and its settings",
+            "params": {
+                "vm": "string",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "snapshot.list",
+            "label": "List Snapshots",
+            "description": "List point-in-time snapshots and tree metadata for a virtual machine",
+            "params": {
+                "vm": "string"
+            }
+        },
+        {
+            "id": "snapshot.create",
+            "label": "Take Snapshot",
+            "description": "Create a live or offline named snapshot for a virtual machine",
+            "params": {
+                "vm": "string",
+                "snap": "string",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "snapshot.restore",
+            "label": "Restore Snapshot",
+            "description": "Revert virtual machine state back to a named snapshot",
+            "params": {
+                "vm": "string",
+                "snap": "string",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "snapshot.delete",
+            "label": "Delete Snapshot",
+            "description": "Purge and merge a snapshot from the snapshot tree",
+            "params": {
+                "vm": "string",
+                "snap": "string",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "network.list",
+            "label": "List Host-Only Networks",
+            "description": "List VirtualBox host-only networking interfaces and DHCP leases",
+            "params": {}
+        },
+        {
+            "id": "network.create",
+            "label": "Create Host-Only Network",
+            "description": "Create and configure a host-only interface with IP address and netmask",
+            "params": {
+                "ip": "string (default: 192.168.56.1)",
+                "netmask": "string (default: 255.255.255.0)",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "network.remove",
+            "label": "Remove Host-Only Network",
+            "description": "Remove a host-only network interface",
+            "params": {
+                "net": "string",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "disk.list",
+            "label": "List Virtual Disks",
+            "description": "List registered VDI and VMDK hard disk images",
+            "params": {}
+        },
+        {
+            "id": "disk.create",
+            "label": "Create Virtual Disk",
+            "description": "Create a dynamically allocated .vdi virtual hard drive image",
+            "params": {
+                "path": "string",
+                "size_gb": "number (default: 20)",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "vm.shot",
+            "label": "Capture Framebuffer Screenshot",
+            "description": "Capture a real-time pixel framebuffer screenshot of a running VM to PNG",
+            "params": {
+                "vm": "string",
+                "out": "string (path to output PNG)"
+            }
+        },
+        {
+            "id": "host.info",
+            "label": "Host & Hypervisor Info",
+            "description": "Query host capabilities, VirtualBox version, and supported guest OS templates",
+            "params": {}
+        },
+        {
+            "id": "sandbox.run",
+            "label": "Run Ephemeral Sandbox",
+            "description": "Execute isolated Python or PowerShell script with strict 30s timeout",
+            "params": {
+                "lang": "string (python|pwsh)",
+                "code": "string"
+            }
+        },
+        {
+            "id": "hyperv.list",
+            "label": "List Hyper-V Virtual Machines",
+            "description": "Query native Windows Hyper-V virtual machines and current states",
+            "params": {}
+        },
+        {
+            "id": "hyperv.start",
+            "label": "Start Hyper-V Virtual Machine",
+            "description": "Boot a Hyper-V virtual machine",
+            "params": {
+                "vm": "string",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "hyperv.stop",
+            "label": "Stop Hyper-V Virtual Machine",
+            "description": "Stop a running Hyper-V virtual machine",
+            "params": {
+                "vm": "string",
+                "force": "boolean (default: false)",
+                "confirm": "boolean (default: false)"
+            }
+        }
+    ])
+}
+
+pub fn describe_command(cmd_id: &str) -> Option<Value> {
+    let clean = cmd_id
+        .trim()
+        .trim_start_matches("vmcraft.")
+        .replace('_', ".");
+    let catalog = commands_catalog();
+    let arr = catalog.as_array()?;
+    arr.iter()
+        .find(|item| {
+            item.get("id")
+                .and_then(|v| v.as_str())
+                .map(|id| id == clean)
+                .unwrap_or(false)
+        })
+        .cloned()
+}
+
+pub fn parse_command(id: &str, params: &Value) -> Result<Command, String> {
+    let clean_id = id.trim().trim_start_matches("vmcraft.").replace('_', ".");
+    match clean_id.as_str() {
+        "status" => Ok(Command::Status),
+        "vm.list" | "vm" => {
+            let limit = params
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map(|u| u as u32);
+            Ok(Command::VmList { limit })
+        }
+        "vm.info" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Ok(Command::VmInfo { vm })
+        }
+        "vm.create" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let ostype = params
+                .get("ostype")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Ubuntu_64")
+                .to_string();
+            let memory_mb = params
+                .get("memory_mb")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(4096) as u32;
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::VmCreate {
+                vm,
+                ostype,
+                memory_mb,
+                confirm,
+            })
+        }
+        "vm.start" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::VmStart { vm, confirm })
+        }
+        "vm.stop" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let force = params
+                .get("force")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::VmStop { vm, force, confirm })
+        }
+        "vm.delete" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::VmDelete { vm, confirm })
+        }
+        "snapshot.list" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Ok(Command::SnapshotList { vm })
+        }
+        "snapshot.create" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let snap = params
+                .get("snap")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::SnapshotCreate { vm, snap, confirm })
+        }
+        "snapshot.restore" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let snap = params
+                .get("snap")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::SnapshotRestore { vm, snap, confirm })
+        }
+        "snapshot.delete" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let snap = params
+                .get("snap")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::SnapshotDelete { vm, snap, confirm })
+        }
+        "network.list" => Ok(Command::NetworkList),
+        "network.create" => {
+            let ip = params
+                .get("ip")
+                .and_then(|v| v.as_str())
+                .unwrap_or("192.168.56.1")
+                .to_string();
+            let netmask = params
+                .get("netmask")
+                .and_then(|v| v.as_str())
+                .unwrap_or("255.255.255.0")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::NetworkCreate {
+                ip,
+                netmask,
+                confirm,
+            })
+        }
+        "network.remove" => {
+            let net = params
+                .get("net")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::NetworkRemove { net, confirm })
+        }
+        "disk.list" => Ok(Command::DiskList),
+        "disk.create" => {
+            let path = params
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let size_gb = params.get("size_gb").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::DiskCreate {
+                path,
+                size_gb,
+                confirm,
+            })
+        }
+        "vm.shot" | "shot" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let out = params
+                .get("out")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Ok(Command::VmShot { vm, out })
+        }
+        "host.info" => Ok(Command::HostInfo),
+        "sandbox.run" => {
+            let lang = params
+                .get("lang")
+                .and_then(|v| v.as_str())
+                .unwrap_or("python")
+                .to_string();
+            let code = params
+                .get("code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Ok(Command::SandboxRun { lang, code })
+        }
+        "hyperv.list" => Ok(Command::HypervList),
+        "hyperv.start" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::HypervStart { vm, confirm })
+        }
+        "hyperv.stop" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let force = params
+                .get("force")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::HypervStop { vm, force, confirm })
+        }
+        _ => Err(format!("unknown command id '{id}'")),
     }
 }
 

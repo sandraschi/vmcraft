@@ -4641,6 +4641,7 @@ name = "vmcraft-app"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "image",
  "keyring",
  "serde",
  "serde_json",

@@ -116,13 +116,14 @@ async fn run_vbox(args: &[&str], secs: u64) -> Result<String, String> {
 
 pub async fn status() -> Value {
     let vbox = vbox_probe().await;
+    let hyperv = hyperv_probe().await;
     json!({
         "tool": "vmcraft.status",
         "status": "ok",
         "vbox_present": vbox,
-        "hyperv_present": false,
+        "hyperv_present": hyperv,
         "mutate_allowed": mutate_allowed(),
-        "note": "Tier-1 read-only + sandbox. Mutating verbs gated behind --yes / VMCRAFT_ALLOW_MUTATE=1."
+        "note": "Tier-3 live multi-hypervisor + craft command bus. Mutating verbs gated behind --yes / VMCRAFT_ALLOW_MUTATE=1."
     })
 }
 
@@ -141,41 +142,169 @@ async fn vbox_probe() -> bool {
     false
 }
 
+pub async fn hyperv_probe() -> bool {
+    let output = run_capture(
+        "powershell",
+        &[
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "if (Get-Command Get-VM -ErrorAction SilentlyContinue) { Write-Output 'HV_OK' }",
+        ],
+        5,
+    )
+    .await;
+    match output {
+        Ok(t) => t.trim().contains("HV_OK"),
+        Err(_) => false,
+    }
+}
+
+pub async fn hyperv_list() -> Value {
+    let output = run_capture(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", "Get-VM -ErrorAction SilentlyContinue | Select-Object Name, State, Id | ConvertTo-Json -Compress"],
+        10,
+    ).await;
+    match output {
+        Ok(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return json!({"tool": "hyperv_list", "status": "ok", "count": 0, "vms": []});
+            }
+            let parsed: Value =
+                serde_json::from_str(trimmed).unwrap_or_else(|_| Value::Array(Vec::new()));
+            let list = match parsed {
+                Value::Array(arr) => arr,
+                Value::Object(obj) => vec![Value::Object(obj)],
+                _ => Vec::new(),
+            };
+            let mut vms = Vec::new();
+            for item in list {
+                let name = item
+                    .get("Name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let id = item
+                    .get("Id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let state_code = item.get("State").and_then(|v| v.as_u64()).unwrap_or(0);
+                let state = match state_code {
+                    2 => "running",
+                    3 => "off",
+                    4 => "stopping",
+                    6 => "saved",
+                    9 => "paused",
+                    _ => "unknown",
+                };
+                if !name.is_empty() {
+                    vms.push(
+                        json!({"name": name, "uuid": id, "state": state, "provider": "hyperv"}),
+                    );
+                }
+            }
+            json!({"tool": "hyperv_list", "status": "ok", "count": vms.len(), "vms": vms})
+        }
+        Err(e) => down("hyperv_list", &format!("Hyper-V query failed: {e}")),
+    }
+}
+
+pub async fn hyperv_start(vm: &str, confirm: bool) -> Value {
+    if let Some(g) = gate("hyperv_start", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) {
+        return json!({"tool": "hyperv_start", "status": "error", "reason": "vm must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    let script = format!("Start-VM -Name '{}'", vm.replace('\'', "''"));
+    match run_capture(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", &script],
+        30,
+    )
+    .await
+    {
+        Ok(_) => json!({"tool": "hyperv_start", "status": "ok", "vm": vm, "action": "start"}),
+        Err(e) => json!({"tool": "hyperv_start", "status": "error", "vm": vm, "reason": e}),
+    }
+}
+
+pub async fn hyperv_stop(vm: &str, force: bool, confirm: bool) -> Value {
+    if let Some(g) = gate("hyperv_stop", confirm) {
+        return g;
+    }
+    if !valid_name(vm, 64) {
+        return json!({"tool": "hyperv_stop", "status": "error", "reason": "vm must be 1..64 chars [A-Za-z0-9 _-.()]"});
+    }
+    let flag = if force { " -TurnOff" } else { " -Save" };
+    let script = format!("Stop-VM -Name '{}'{}", vm.replace('\'', "''"), flag);
+    match run_capture(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", &script],
+        30,
+    )
+    .await
+    {
+        Ok(_) => json!({"tool": "hyperv_stop", "status": "ok", "vm": vm, "action": "stop"}),
+        Err(e) => json!({"tool": "hyperv_stop", "status": "error", "vm": vm, "reason": e}),
+    }
+}
+
 pub async fn vm_list(limit: Option<u32>) -> Value {
+    let mut all_vms: Vec<Value> = Vec::new();
+    let mut vbox_found = false;
+
     for cand in vboxmanage_candidates() {
-        match run_capture(&cand, &["list", "vms"], 15).await {
-            Ok(text) => {
-                let mut vms: Vec<Value> = Vec::new();
-                for line in text.lines() {
-                    let t = line.trim();
-                    if t.is_empty() {
-                        continue;
-                    }
-                    // Format: "Name" {uuid}
-                    let (name, id) = if let Some(pos) = t.rfind('{') {
-                        (
-                            t[..pos].trim().trim_matches('"').to_string(),
-                            t[pos..].to_string(),
-                        )
-                    } else {
-                        (t.to_string(), String::new())
-                    };
-                    vms.push(json!({"name": name, "uuid": id}));
-                    if let Some(lim) = limit {
-                        if vms.len() >= lim as usize {
-                            break;
-                        }
+        if let Ok(text) = run_capture(&cand, &["list", "vms"], 15).await {
+            vbox_found = true;
+            for line in text.lines() {
+                let t = line.trim();
+                if t.is_empty() {
+                    continue;
+                }
+                // Format: "Name" {uuid}
+                let (name, id) = if let Some(pos) = t.rfind('{') {
+                    (
+                        t[..pos].trim().trim_matches('"').to_string(),
+                        t[pos..].to_string(),
+                    )
+                } else {
+                    (t.to_string(), String::new())
+                };
+                all_vms.push(json!({"name": name, "uuid": id, "provider": "virtualbox"}));
+                if let Some(lim) = limit {
+                    if all_vms.len() >= lim as usize {
+                        break;
                     }
                 }
-                return json!({"tool": "vm_list", "status": "ok", "vboxmanage": cand, "count": vms.len(), "vms": vms});
             }
-            Err(_) => continue,
+            break;
         }
     }
-    down(
-        "vm_list",
-        "VBoxManage not found or not runnable (install VirtualBox 7+ or set VBOXMANAGE_PATH)",
-    )
+
+    // Also include Hyper-V VMs if under limit
+    if limit.map(|l| all_vms.len() < l as usize).unwrap_or(true) {
+        let hv_res = hyperv_list().await;
+        if let Some(arr) = hv_res.get("vms").and_then(|v| v.as_array()) {
+            for v in arr {
+                all_vms.push(v.clone());
+                if let Some(lim) = limit {
+                    if all_vms.len() >= lim as usize {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if vbox_found || !all_vms.is_empty() {
+        return json!({"tool": "vm_list", "status": "ok", "count": all_vms.len(), "vms": all_vms});
+    }
+
+    down("vm_list", "No hypervisor found (VirtualBox or Hyper-V)")
 }
 
 pub async fn vm_info(vm: &str) -> Value {
@@ -202,7 +331,52 @@ pub async fn snapshot_list(vm: &str) -> Value {
     for cand in vboxmanage_candidates() {
         match run_capture(&cand, &["snapshot", name, "list", "--machinereadable"], 15).await {
             Ok(text) => {
-                return json!({"tool": "snapshot_list", "status": "ok", "vm": name, "raw": text.chars().take(4000).collect::<String>()});
+                let mut snapshots = Vec::new();
+                let mut current_name = String::new();
+                let mut current_uuid = String::new();
+                let mut current_desc = String::new();
+
+                for line in text.lines() {
+                    let line = line.trim();
+                    if let Some(pos) = line.find('=') {
+                        let key = line[..pos].trim();
+                        let val = line[pos + 1..].trim().trim_matches('"');
+                        if key.starts_with("SnapshotName") && !key.starts_with("CurrentSnapshot") {
+                            if !current_name.is_empty() {
+                                snapshots.push(json!({
+                                    "name": current_name,
+                                    "uuid": current_uuid,
+                                    "description": current_desc,
+                                }));
+                                current_uuid.clear();
+                                current_desc.clear();
+                            }
+                            current_name = val.to_string();
+                        } else if key.starts_with("SnapshotUUID")
+                            && !key.starts_with("CurrentSnapshot")
+                        {
+                            current_uuid = val.to_string();
+                        } else if key.starts_with("SnapshotDescription") {
+                            current_desc = val.to_string();
+                        }
+                    }
+                }
+                if !current_name.is_empty() {
+                    snapshots.push(json!({
+                        "name": current_name,
+                        "uuid": current_uuid,
+                        "description": current_desc,
+                    }));
+                }
+
+                return json!({
+                    "tool": "snapshot_list",
+                    "status": "ok",
+                    "vm": name,
+                    "count": snapshots.len(),
+                    "snapshots": snapshots,
+                    "raw": text.chars().take(4000).collect::<String>()
+                });
             }
             Err(_) => continue,
         }
