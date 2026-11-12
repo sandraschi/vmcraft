@@ -17,3 +17,4 @@ data/
 *.db*
 .env
 CHANGELOG.local.md
+/dist

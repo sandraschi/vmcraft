@@ -1,18 +1,11 @@
-@echo off
-setlocal
-REM Double-click launcher: delegates to start.ps1 (keeps window open on error).
-set "HERE=%~dp0"
-where pwsh.exe >nul 2>&1
-if %errorlevel%==0 (
-  pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%HERE%start.ps1" %*
-) else (
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%HERE%start.ps1" %*
-)
-if errorlevel 1 (
-  echo.
-  echo [vmcraft-start] exited with error - window held open, instacrash guard
-  pause
-  exit /b 1
-)
-endlocal
-exit /b 0
+@echo off
+REM Craft app launcher (vendored from mcp-central-docs\templates\craft-app). Double-click or run
+REM with the same arguments as start.ps1. The window stays open on errors.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1" %*
+if errorlevel 1 (
+  echo.
+  echo [%~n0] exited with error %errorlevel% - window held open
+  pause
+  exit /b 1
+)
+exit /b 0
