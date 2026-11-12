@@ -1,0 +1,157 @@
+{
+  "manifest_version": "0.2",
+  "name": "vmcraft",
+  "display_name": "VmCraft",
+  "version": "__VERSION__",
+  "description": "L3 egui desktop app calling vmcraft-core in-process",
+  "author": {
+    "name": "Sandra Schipal",
+    "url": "https://github.com/sandraschi"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sandraschi/vmcraft"
+  },
+  "license": "MIT OR Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "vmcraft-mcp.exe",
+    "mcp_config": {
+      "command": "${__dirname}/vmcraft-mcp.exe",
+      "args": [
+        "mcp"
+      ]
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "win32"
+    ]
+  },
+  "tools": [
+    {
+      "name": "vmcraft.commands",
+      "description": "Command bus catalog for automation"
+    },
+    {
+      "name": "vmcraft.describe",
+      "description": "Describe command parameters and semantics"
+    },
+    {
+      "name": "vmcraft.run",
+      "description": "Execute command bus instruction"
+    },
+    {
+      "name": "vmcraft.status",
+      "description": "Daemon status + hypervisor presence"
+    },
+    {
+      "name": "vmcraft_vm_list",
+      "description": "List VirtualBox and Hyper-V VMs (read-only)"
+    },
+    {
+      "name": "vmcraft_vm_info",
+      "description": "VM info (read-only)"
+    },
+    {
+      "name": "vmcraft_vm_create",
+      "description": "Create+register VM (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_vm_start",
+      "description": "Start VM headless (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_vm_stop",
+      "description": "Stop VM poweroff|acpi (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_vm_delete",
+      "description": "Unregister+delete VM (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_snapshot_list",
+      "description": "Snapshot list (read-only)"
+    },
+    {
+      "name": "vmcraft_snapshot_create",
+      "description": "Take snapshot (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_snapshot_restore",
+      "description": "Restore snapshot (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_snapshot_delete",
+      "description": "Delete snapshot (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_network_list",
+      "description": "Host-only networks (read-only)"
+    },
+    {
+      "name": "vmcraft_network_create",
+      "description": "Create hostonlyif + ipconfig (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_network_remove",
+      "description": "Remove hostonlyif (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_disk_list",
+      "description": "List virtual disks (read-only)"
+    },
+    {
+      "name": "vmcraft_disk_create",
+      "description": "Create .vdi (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft_vm_shot",
+      "description": "Screenshot running VM to PNG (read-only, VM must run)"
+    },
+    {
+      "name": "vmcraft_host_info",
+      "description": "Host info (read-only)"
+    },
+    {
+      "name": "vmcraft_sandbox_run",
+      "description": "Ephemeral code run, 30s timeout"
+    },
+    {
+      "name": "vmcraft.hyperv_list",
+      "description": "List Hyper-V VMs (read-only)"
+    },
+    {
+      "name": "vmcraft.hyperv_start",
+      "description": "Start Hyper-V VM (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft.hyperv_stop",
+      "description": "Stop Hyper-V VM (needs --yes / allow)"
+    },
+    {
+      "name": "vmcraft.airgap_set",
+      "description": "Set airgap network/clipboard block on VM"
+    },
+    {
+      "name": "vmcraft.guest_exec",
+      "description": "Execute binary inside isolated guest via Guest Additions"
+    },
+    {
+      "name": "vmcraft.guest_copyto",
+      "description": "Copy file from host into guest filesystem"
+    },
+    {
+      "name": "vmcraft.guest_copyfrom",
+      "description": "Extract file from guest back to host"
+    },
+    {
+      "name": "vmcraft.pipeline_detonate",
+      "description": "Clean-room keygen/untrusted detonation, in-guest disassembly, clean extraction, and auto-nuke"
+    },
+    {
+      "name": "vmcraft.pipeline_naked_install",
+      "description": "Automated clean-room consumer install test for repo"
+    }
+  ]
+}
