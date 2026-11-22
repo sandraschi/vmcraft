@@ -245,6 +245,13 @@ impl HelpTab {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum StatusBarPos {
+    Bottom,
+    Top,
+    Off,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Dashboard,
     Vms,
@@ -362,6 +369,7 @@ pub struct VmApp {
     show_about: bool,
     show_licenses: bool,
     show_tab_bar: bool,
+    status_bar_pos: StatusBarPos,
 }
 
 impl VmApp {
@@ -435,6 +443,7 @@ impl VmApp {
             show_about: false,
             show_licenses: false,
             show_tab_bar: true,
+            status_bar_pos: StatusBarPos::Bottom,
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -680,6 +689,62 @@ impl VmApp {
     fn confirm(&self) -> bool {
         self.mutate_confirm
     }
+
+    fn render_status_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.heading(RichText::new("vmcraft").strong().color(ACCENT_CYAN));
+            render_badge(
+                ui,
+                "v0.1.0 (T1)",
+                egui::Color32::from_rgb(14, 116, 144),
+                egui::Color32::WHITE,
+            );
+
+            if ui.button("⟳ Refresh").clicked() {
+                self.refresh_all();
+            }
+
+            if self.pending_tasks > 0 {
+                ui.spinner();
+                ui.label(RichText::new(format!("Loading ({}…)", self.pending_tasks)).weak());
+            } else {
+                ui.label(RichText::new(&self.status).color(ACCENT_EMERALD));
+            }
+
+            if let Some(ref host) = self.host_info {
+                ui.separator();
+                ui.label(RichText::new(host).weak());
+            }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                theme_toggle_button(ui, &mut self.dark_mode);
+            });
+        });
+
+        ui.horizontal(|ui| {
+            if self.airgap_active {
+                render_badge(
+                    ui,
+                    "✂ HARD AIRGAP ENFORCED — ALL VIRTUAL NICS SEVERED — CLIPBOARD LOCKED",
+                    egui::Color32::from_rgb(120, 53, 15),
+                    ACCENT_AMBER,
+                );
+            } else {
+                render_badge(
+                    ui,
+                    "🌐 NETWORK ADAPTERS CONNECTED",
+                    egui::Color32::from_rgb(6, 78, 59),
+                    ACCENT_EMERALD,
+                );
+            }
+
+            ui.separator();
+            ui.checkbox(&mut self.mutate_confirm, "allow mutate (== --yes)");
+            ui.label(
+                RichText::new("mutating verbs need this checkbox or VMCRAFT_ALLOW_MUTATE=1").weak(),
+            );
+        });
+    }
 }
 
 impl eframe::App for VmApp {
@@ -783,6 +848,29 @@ impl eframe::App for VmApp {
                 {
                     ui.close();
                 }
+                ui.menu_button("Status Bar", |ui| {
+                    if ui
+                        .selectable_label(self.status_bar_pos == StatusBarPos::Bottom, "Bottom")
+                        .clicked()
+                    {
+                        self.status_bar_pos = StatusBarPos::Bottom;
+                        ui.close();
+                    }
+                    if ui
+                        .selectable_label(self.status_bar_pos == StatusBarPos::Top, "Top")
+                        .clicked()
+                    {
+                        self.status_bar_pos = StatusBarPos::Top;
+                        ui.close();
+                    }
+                    if ui
+                        .selectable_label(self.status_bar_pos == StatusBarPos::Off, "Off")
+                        .clicked()
+                    {
+                        self.status_bar_pos = StatusBarPos::Off;
+                        ui.close();
+                    }
+                });
                 ui.separator();
                 ui.menu_button("Interface Theme", |ui| {
                     if ui.selectable_label(self.dark_mode, "Dark").clicked() {
@@ -887,64 +975,16 @@ impl eframe::App for VmApp {
         });
         ui.separator();
 
-        // Top bar
-        ui.horizontal(|ui| {
-            ui.heading(RichText::new("vmcraft").strong().color(ACCENT_CYAN));
-            render_badge(
-                ui,
-                "v0.1.0 (T1)",
-                egui::Color32::from_rgb(14, 116, 144),
-                egui::Color32::WHITE,
-            );
-
-            if ui.button("⟳ Refresh").clicked() {
-                self.refresh_all();
-            }
-
-            if self.pending_tasks > 0 {
-                ui.spinner();
-                ui.label(RichText::new(format!("Loading ({}…)", self.pending_tasks)).weak());
-            } else {
-                ui.label(RichText::new(&self.status).color(ACCENT_EMERALD));
-            }
-
-            if let Some(ref host) = self.host_info {
-                ui.separator();
-                ui.label(RichText::new(host).weak());
-            }
-
-            // Theme toggle button on the far right
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                theme_toggle_button(ui, &mut self.dark_mode);
-            });
-        });
-        ui.separator();
-
-        // Persistent Airgap & Security Banner
-        ui.horizontal(|ui| {
-            if self.airgap_active {
-                render_badge(
-                    ui,
-                    "✂ HARD AIRGAP ENFORCED — ALL VIRTUAL NICS SEVERED — CLIPBOARD LOCKED",
-                    egui::Color32::from_rgb(120, 53, 15),
-                    ACCENT_AMBER,
-                );
-            } else {
-                render_badge(
-                    ui,
-                    "🌐 NETWORK ADAPTERS CONNECTED",
-                    egui::Color32::from_rgb(6, 78, 59),
-                    ACCENT_EMERALD,
-                );
-            }
-
+        if self.status_bar_pos == StatusBarPos::Top {
+            self.render_status_bar(ui);
             ui.separator();
-            ui.checkbox(&mut self.mutate_confirm, "allow mutate (== --yes)");
-            ui.label(
-                RichText::new("mutating verbs need this checkbox or VMCRAFT_ALLOW_MUTATE=1").weak(),
-            );
-        });
-        ui.separator();
+        }
+
+        if self.status_bar_pos == StatusBarPos::Bottom {
+            egui::Panel::bottom("vmcraft_status_bar").show_inside(ui, |ui| {
+                self.render_status_bar(ui);
+            });
+        }
 
         // Page navigation bar (hideable single-click alternative to Window menu)
         if self.show_tab_bar {
@@ -2146,6 +2186,7 @@ mod tests {
             show_about: false,
             show_licenses: false,
             show_tab_bar: true,
+            status_bar_pos: StatusBarPos::Bottom,
         };
 
         let sample_json = serde_json::json!({
@@ -2226,6 +2267,7 @@ mod tests {
             show_about: false,
             show_licenses: false,
             show_tab_bar: true,
+            status_bar_pos: StatusBarPos::Bottom,
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -2346,6 +2388,7 @@ mod tests {
             show_about: false,
             show_licenses: false,
             show_tab_bar: true,
+            status_bar_pos: StatusBarPos::Bottom,
         };
 
         let _ = tx.send(AppMessage::CommandResult {
