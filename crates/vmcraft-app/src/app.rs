@@ -361,6 +361,7 @@ pub struct VmApp {
     show_shortcuts: bool,
     show_about: bool,
     show_licenses: bool,
+    show_tab_bar: bool,
 }
 
 impl VmApp {
@@ -433,6 +434,7 @@ impl VmApp {
             show_shortcuts: false,
             show_about: false,
             show_licenses: false,
+            show_tab_bar: true,
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -705,6 +707,9 @@ impl eframe::App for VmApp {
             if i.modifiers.ctrl && i.key_pressed(egui::Key::Q) {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::B) {
+                self.show_tab_bar = !self.show_tab_bar;
+            }
         });
 
         if self.pending_tasks > 0 {
@@ -769,6 +774,13 @@ impl eframe::App for VmApp {
                 }
                 if ui.button("Reset Zoom (100%)\tCtrl+1").clicked() {
                     ui.ctx().set_zoom_factor(1.0);
+                    ui.close();
+                }
+                ui.separator();
+                if ui
+                    .checkbox(&mut self.show_tab_bar, "Show Tab Bar\tCtrl+B")
+                    .changed()
+                {
                     ui.close();
                 }
                 ui.separator();
@@ -934,33 +946,35 @@ impl eframe::App for VmApp {
         });
         ui.separator();
 
-        // Page navigation bar
-        ui.horizontal(|ui| {
-            for p in [
-                Page::Dashboard,
-                Page::Vms,
-                Page::Snapshots,
-                Page::Network,
-                Page::Disks,
-                Page::Shot,
-                Page::Detonate,
-                Page::Swarm,
-                Page::Sandbox,
-                Page::Commands,
-                Page::Help,
-            ] {
-                let is_selected = self.page == p;
-                let btn = if is_selected {
-                    ui.button(RichText::new(p.label()).strong().color(ACCENT_CYAN))
-                } else {
-                    ui.button(p.label())
-                };
-                if btn.clicked() {
-                    self.page = p;
+        // Page navigation bar (hideable single-click alternative to Window menu)
+        if self.show_tab_bar {
+            ui.horizontal(|ui| {
+                for p in [
+                    Page::Dashboard,
+                    Page::Vms,
+                    Page::Snapshots,
+                    Page::Network,
+                    Page::Disks,
+                    Page::Shot,
+                    Page::Detonate,
+                    Page::Swarm,
+                    Page::Sandbox,
+                    Page::Commands,
+                    Page::Help,
+                ] {
+                    let is_selected = self.page == p;
+                    let btn = if is_selected {
+                        ui.button(RichText::new(p.label()).strong().color(ACCENT_CYAN))
+                    } else {
+                        ui.button(p.label())
+                    };
+                    if btn.clicked() {
+                        self.page = p;
+                    }
                 }
-            }
-        });
-        ui.separator();
+            });
+            ui.separator();
+        }
 
         match self.page {
             Page::Dashboard => {
@@ -2003,6 +2017,9 @@ impl eframe::App for VmApp {
                             ui.label(RichText::new("Ctrl+1").strong());
                             ui.label("Reset Zoom (100%)");
                             ui.end_row();
+                            ui.label(RichText::new("Ctrl+B").strong());
+                            ui.label("Show / Hide Tab Bar");
+                            ui.end_row();
                             ui.label(RichText::new("Ctrl+Q").strong());
                             ui.label("Quit Application");
                             ui.end_row();
@@ -2128,6 +2145,7 @@ mod tests {
             show_shortcuts: false,
             show_about: false,
             show_licenses: false,
+            show_tab_bar: true,
         };
 
         let sample_json = serde_json::json!({
@@ -2207,6 +2225,7 @@ mod tests {
             show_shortcuts: false,
             show_about: false,
             show_licenses: false,
+            show_tab_bar: true,
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -2326,6 +2345,7 @@ mod tests {
             show_shortcuts: false,
             show_about: false,
             show_licenses: false,
+            show_tab_bar: true,
         };
 
         let _ = tx.send(AppMessage::CommandResult {

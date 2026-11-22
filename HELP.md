@@ -23,7 +23,7 @@ Pure-Rust ArtCraft Virtual Machine workstation (`vmcraft-core` L1, `vmcraft-mcp`
 
 ## 3. Usage (GUI, CLI & MCP)
 
-- **GUI**: Use the top menu bar (`Session`, `Edit`, `View`, `Command`, `Window`, `Help`) or tab strip. Press `Ctrl+K` (or `Ctrl+Shift+P`) for the Command Palette, `F1` for Keyboard Shortcuts, and `Ctrl+MouseWheel` to zoom.
+- **GUI**: Use the top menu bar (`Session`, `Edit`, `View`, `Command`, `Window`, `Help`) or the hideable single-click tab strip (`View -> Show Tab Bar` / `Ctrl+B`). Press `Ctrl+K` (or `Ctrl+Shift+P`) for the Command Palette, `F1` for Keyboard Shortcuts, and `Ctrl+MouseWheel` to zoom.
 - **CLI**:
   ```powershell
   vmcraft-mcp status
