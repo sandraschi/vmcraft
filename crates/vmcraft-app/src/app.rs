@@ -186,6 +186,56 @@ fn switch_on_hover(ctx: &egui::Context, titles: &[egui::Response]) {
     }
 }
 
+/// Parse `VM Info` JSON response into human-readable `(label, value)` pairs.
+fn parse_vm_info_fields(val: &serde_json::Value) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if let Some(reason) = val.get("reason").and_then(|v| v.as_str()) {
+        out.push(("Error".to_string(), reason.to_string()));
+        return out;
+    }
+    let Some(raw) = val.get("info").and_then(|v| v.as_str()) else {
+        if let Some(vm) = val.get("vm").and_then(|v| v.as_str()) {
+            out.push(("VM".to_string(), vm.to_string()));
+        }
+        return out;
+    };
+
+    let mut kv: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if let Some((k, v)) = trimmed.split_once('=') {
+            let key = k.trim().trim_matches('"').to_string();
+            let val_str = v.trim().trim_matches('"').to_string();
+            kv.insert(key, val_str);
+        }
+    }
+
+    let mappings: &[(&str, &str, &str)] = &[
+        ("name", "Name", ""),
+        ("ostype", "OS Type", ""),
+        ("VMState", "State", ""),
+        ("cpus", "CPUs", ""),
+        ("memory", "Memory", " MB"),
+        ("vram", "VRAM", " MB"),
+        ("graphicscontroller", "Graphics", ""),
+        ("nic1", "Network (NIC 1)", ""),
+        ("vrde", "VRDE Remote", ""),
+        ("vrdeports", "VRDE Port", ""),
+        ("CurrentSnapshotName", "Current Snapshot", ""),
+        ("UUID", "UUID", ""),
+        ("CfgFile", "Config File", ""),
+    ];
+
+    for (key, label, suffix) in mappings {
+        if let Some(v) = kv.get(*key) {
+            if !v.is_empty() && v != "none" {
+                out.push(((*label).to_string(), format!("{v}{suffix}")));
+            }
+        }
+    }
+    out
+}
+
 /// Filter registered ArtCraft command bus entries for the Command Palette.
 fn filter_palette_commands(query: &str) -> Vec<(String, String, String)> {
     let q = query.trim().to_lowercase();
@@ -370,6 +420,7 @@ pub struct VmApp {
     show_licenses: bool,
     show_tab_bar: bool,
     status_bar_pos: StatusBarPos,
+    vm_info_fields: Vec<(String, String)>,
 }
 
 impl VmApp {
@@ -444,6 +495,7 @@ impl VmApp {
             show_licenses: false,
             show_tab_bar: true,
             status_bar_pos: StatusBarPos::Bottom,
+            vm_info_fields: Vec::new(),
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -562,8 +614,16 @@ impl VmApp {
                             self.vm_name = self.vms[0].name.clone();
                         }
                     }
-                    self.vm_output =
-                        serde_json::to_string_pretty(&val).unwrap_or_else(|_| val.to_string());
+                    let summary: Vec<String> = self
+                        .vms
+                        .iter()
+                        .map(|v| format!("{} ({})", v.name, v.provider))
+                        .collect();
+                    self.vm_output = if summary.is_empty() {
+                        "No VMs found.".to_string()
+                    } else {
+                        format!("Found {} VMs: {}", summary.len(), summary.join(", "))
+                    };
                 }
                 AppMessage::HostInfo(val) => {
                     if let Some(ver) = val.get("vbox_version").and_then(|s| s.as_str()) {
@@ -637,6 +697,8 @@ impl VmApp {
                         self.airgap_active = true;
                     } else if title == "Airgap Reconnect" {
                         self.airgap_active = false;
+                    } else if title == "VM Info" {
+                        self.vm_info_fields = parse_vm_info_fields(&value);
                     } else if title == "Firecracker Probe" {
                         if value.get("status").and_then(|v| v.as_str()) == Some("ok") {
                             self.swarm_kvm_available =
@@ -769,6 +831,14 @@ impl eframe::App for VmApp {
             if i.modifiers.ctrl && i.key_pressed(egui::Key::Num1) {
                 ui.ctx().set_zoom_factor(1.0);
             }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Equals) {
+                let z = (ui.ctx().zoom_factor() * 1.1).clamp(0.6, 2.5);
+                ui.ctx().set_zoom_factor(z);
+            }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Minus) {
+                let z = (ui.ctx().zoom_factor() / 1.1).clamp(0.6, 2.5);
+                ui.ctx().set_zoom_factor(z);
+            }
             if i.modifiers.ctrl && i.key_pressed(egui::Key::Q) {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -827,12 +897,12 @@ impl eframe::App for VmApp {
             titles.push(r_edit.response);
 
             let r_view = ui.menu_button("View", |ui| {
-                if ui.button("Zoom In").clicked() {
+                if ui.button("Zoom In\tCtrl+=").clicked() {
                     let z = (ui.ctx().zoom_factor() * 1.1).clamp(0.6, 2.5);
                     ui.ctx().set_zoom_factor(z);
                     ui.close();
                 }
-                if ui.button("Zoom Out").clicked() {
+                if ui.button("Zoom Out\tCtrl+-").clicked() {
                     let z = (ui.ctx().zoom_factor() / 1.1).clamp(0.6, 2.5);
                     ui.ctx().set_zoom_factor(z);
                     ui.close();
@@ -1239,15 +1309,104 @@ impl eframe::App for VmApp {
                 });
 
                 ui.separator();
-                ui.label(RichText::new("Command Output:").strong());
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.vm_output)
-                            .desired_rows(14)
-                            .desired_width(f32::INFINITY)
-                            .font(egui::TextStyle::Monospace),
+                if !self.vms.is_empty() {
+                    ui.label(
+                        RichText::new(format!("Registered VMs ({}):", self.vms.len())).strong(),
                     );
-                });
+                    let mut vms_action: Option<(String, Option<(&'static str, Command)>)> = None;
+                    egui::Grid::new("vms_page_table")
+                        .striped(true)
+                        .spacing([12.0, 6.0])
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("Name").strong());
+                            ui.label(RichText::new("Provider").strong());
+                            ui.label(RichText::new("UUID").strong());
+                            ui.label(RichText::new("Actions").strong());
+                            ui.end_row();
+                            for vm in &self.vms {
+                                let selected = self.vm_name == vm.name;
+                                if ui.selectable_label(selected, &vm.name).clicked() {
+                                    vms_action = Some((vm.name.clone(), None));
+                                }
+                                ui.label(&vm.provider);
+                                ui.label(RichText::new(&vm.uuid).weak());
+                                ui.horizontal(|ui| {
+                                    if ui.button("Info").clicked() {
+                                        vms_action = Some((
+                                            vm.name.clone(),
+                                            Some((
+                                                "VM Info",
+                                                Command::VmInfo {
+                                                    vm: vm.name.clone(),
+                                                },
+                                            )),
+                                        ));
+                                    }
+                                    if ui.button("Start").clicked() {
+                                        vms_action = Some((
+                                            vm.name.clone(),
+                                            Some((
+                                                "VM Start",
+                                                Command::VmStart {
+                                                    vm: vm.name.clone(),
+                                                    confirm: self.confirm(),
+                                                },
+                                            )),
+                                        ));
+                                    }
+                                    if ui.button("Stop").clicked() {
+                                        vms_action = Some((
+                                            vm.name.clone(),
+                                            Some((
+                                                "VM Stop",
+                                                Command::VmStop {
+                                                    vm: vm.name.clone(),
+                                                    force: false,
+                                                    confirm: self.confirm(),
+                                                },
+                                            )),
+                                        ));
+                                    }
+                                });
+                                ui.end_row();
+                            }
+                        });
+                    if let Some((name, cmd_opt)) = vms_action {
+                        self.vm_name = name;
+                        if let Some((title, cmd)) = cmd_opt {
+                            self.spawn_command(title, cmd);
+                        }
+                    }
+                    ui.separator();
+                }
+
+                if !self.vm_info_fields.is_empty() {
+                    ui.label(RichText::new("Selected VM Details:").strong());
+                    egui::Grid::new("vm_info_details_grid")
+                        .striped(true)
+                        .spacing([16.0, 4.0])
+                        .show(ui, |ui| {
+                            for (k, v) in &self.vm_info_fields {
+                                ui.label(RichText::new(k).strong());
+                                ui.label(v);
+                                ui.end_row();
+                            }
+                        });
+                    ui.separator();
+                }
+
+                egui::CollapsingHeader::new("Raw Command Output (JSON)")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.vm_output)
+                                    .desired_rows(10)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                    });
             }
             Page::Snapshots => {
                 ui.heading("Snapshot Management");
@@ -2187,6 +2346,7 @@ mod tests {
             show_licenses: false,
             show_tab_bar: true,
             status_bar_pos: StatusBarPos::Bottom,
+            vm_info_fields: Vec::new(),
         };
 
         let sample_json = serde_json::json!({
@@ -2268,6 +2428,7 @@ mod tests {
             show_licenses: false,
             show_tab_bar: true,
             status_bar_pos: StatusBarPos::Bottom,
+            vm_info_fields: Vec::new(),
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -2389,6 +2550,7 @@ mod tests {
             show_licenses: false,
             show_tab_bar: true,
             status_bar_pos: StatusBarPos::Bottom,
+            vm_info_fields: Vec::new(),
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -2404,5 +2566,23 @@ mod tests {
         });
         app.drain();
         assert!(!app.airgap_active);
+    }
+
+    #[test]
+    fn parse_vm_info_fields_extracts_human_readable_summary() {
+        let val = serde_json::json!({
+            "status": "ok",
+            "info": "name=\"ubu-2404-lts\"\r\nostype=\"Ubuntu (64-bit)\"\r\nVMState=\"poweroff\"\r\ncpus=4\r\nmemory=8192\r\nCurrentSnapshotName=\"clean-desktop-2026-11-22\"\r\n"
+        });
+        let fields = parse_vm_info_fields(&val);
+        assert!(fields
+            .iter()
+            .any(|(k, v)| k == "Name" && v == "ubu-2404-lts"));
+        assert!(fields
+            .iter()
+            .any(|(k, v)| k == "OS Type" && v == "Ubuntu (64-bit)"));
+        assert!(fields.iter().any(|(k, v)| k == "Memory" && v == "8192 MB"));
+        assert!(fields.iter().any(|(k, v)| k == "CPUs" && v == "4"));
+        assert!(fields.iter().any(|(k, v)| k == "State" && v == "poweroff"));
     }
 }
