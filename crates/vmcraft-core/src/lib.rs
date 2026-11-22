@@ -169,6 +169,11 @@ pub enum Command {
     PipelineNakedInstall {
         repo: String,
         baseline_vm: Option<String>,
+        user: String,
+        pass: String,
+        snapshot: Option<String>,
+        command: Option<String>,
+        linux: bool,
         confirm: bool,
     },
     FirecrackerProbe,
@@ -289,8 +294,25 @@ pub async fn dispatch(cmd: Command) -> Value {
         Command::PipelineNakedInstall {
             repo,
             baseline_vm,
+            user,
+            pass,
+            snapshot,
+            command,
+            linux,
             confirm,
-        } => pipeline::pipeline_naked_install(&repo, baseline_vm.as_deref(), confirm).await,
+        } => {
+            pipeline::pipeline_naked_install(pipeline::NakedInstallParams {
+                repo,
+                baseline_vm,
+                user,
+                pass,
+                snapshot,
+                command,
+                linux,
+                confirm,
+            })
+            .await
+        }
         Command::FirecrackerProbe => firecracker::firecracker_probe().await,
         Command::FirecrackerList => firecracker::firecracker_list().await,
         Command::FirecrackerSpawn {
@@ -1092,6 +1114,28 @@ pub fn parse_command(id: &str, params: &Value) -> Result<Command, String> {
                 .get("baseline_vm")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let user = params
+                .get("user")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let pass = params
+                .get("pass")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let snapshot = params
+                .get("snapshot")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let command = params
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let linux = params
+                .get("linux")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let confirm = params
                 .get("confirm")
                 .and_then(|v| v.as_bool())
@@ -1099,6 +1143,11 @@ pub fn parse_command(id: &str, params: &Value) -> Result<Command, String> {
             Ok(Command::PipelineNakedInstall {
                 repo,
                 baseline_vm,
+                user,
+                pass,
+                snapshot,
+                command,
+                linux,
                 confirm,
             })
         }

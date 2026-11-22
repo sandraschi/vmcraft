@@ -274,6 +274,16 @@ enum PipelineOp {
         repo: String,
         #[arg(long)]
         baseline: Option<String>,
+        #[arg(long, default_value = "")]
+        user: String,
+        #[arg(long, default_value = "")]
+        pass: String,
+        #[arg(long)]
+        snapshot: Option<String>,
+        #[arg(long)]
+        command: Option<String>,
+        #[arg(long, default_value_t = false)]
+        linux: bool,
         #[arg(long, default_value_t = false)]
         yes: bool,
     },
@@ -690,6 +700,19 @@ async fn call_tool(name: &str, args: &Value) -> Value {
                 } else {
                     Some(s("baseline_vm"))
                 },
+                user: s("user"),
+                pass: s("pass"),
+                snapshot: if s("snapshot").is_empty() {
+                    None
+                } else {
+                    Some(s("snapshot"))
+                },
+                command: if s("command").is_empty() {
+                    None
+                } else {
+                    Some(s("command"))
+                },
+                linux: b(args, "linux"),
                 confirm: b(args, "confirm") || b(args, "yes"),
             })
             .await
@@ -919,11 +942,21 @@ async fn main() {
             PipelineOp::NakedTest {
                 repo,
                 baseline,
+                user,
+                pass,
+                snapshot,
+                command,
+                linux,
                 yes,
             } => print_json(
                 &dispatch(Command::PipelineNakedInstall {
                     repo,
                     baseline_vm: baseline,
+                    user,
+                    pass,
+                    snapshot,
+                    command,
+                    linux,
                     confirm: yes,
                 })
                 .await,

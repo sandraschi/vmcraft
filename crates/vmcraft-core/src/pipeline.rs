@@ -502,25 +502,163 @@ async fn execute_detonation_steps(
     }))
 }
 
-/// Run an automated naked install test for a target repository
-pub async fn pipeline_naked_install(repo: &str, baseline_vm: Option<&str>, confirm: bool) -> Value {
-    if let Some(err) = gate("pipeline_naked_install", confirm) {
+/// Parameters for a clean-room naked install / test run inside a baseline VM.
+#[derive(Debug, Clone)]
+pub struct NakedInstallParams {
+    pub repo: String,
+    pub baseline_vm: Option<String>,
+    pub user: String,
+    pub pass: String,
+    pub snapshot: Option<String>,
+    pub command: Option<String>,
+    pub linux: bool,
+    pub confirm: bool,
+}
+
+fn valid_repo_ref(repo: &str) -> bool {
+    let r = repo.trim();
+    !r.is_empty()
+        && r.len() <= 256
+        && r.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | ':'))
+}
+
+/// Run an automated naked install test for a target repository via VirtualBox Guest Additions.
+pub async fn pipeline_naked_install(p: NakedInstallParams) -> Value {
+    if let Some(err) = gate("pipeline_naked_install", p.confirm) {
         return err;
     }
 
-    let target_vm = baseline_vm.unwrap_or("win11-automated");
+    let target_vm = p.baseline_vm.as_deref().unwrap_or("win11-automated").trim();
     if !valid_name(target_vm, 128) {
         return down("pipeline_naked_install", "invalid baseline vm name");
     }
+    let repo = p.repo.trim();
+    if !valid_repo_ref(repo) {
+        return down("pipeline_naked_install", "invalid repo reference");
+    }
+    if p.user.trim().is_empty() {
+        return down(
+            "pipeline_naked_install",
+            "guest username (--user) is required for guestcontrol execution",
+        );
+    }
+    if let Some(ref snap) = p.snapshot {
+        if !valid_name(snap.trim(), 128) {
+            return down("pipeline_naked_install", "invalid snapshot name");
+        }
+    }
 
-    json!({
-        "tool": "pipeline_naked_install",
-        "status": "ok",
-        "repo": repo,
-        "baseline_vm": target_vm,
-        "instructions": "1. Restore clean-base snapshot. 2. Verify zero dev tools. 3. Clone and run INSTALL.md. 4. Assert health. 5. Revert.",
-        "verified": true,
-    })
+    let Some(cand) = vboxmanage_candidates().into_iter().next() else {
+        return down("pipeline_naked_install", "VBoxManage not found");
+    };
+
+    let mut steps: Vec<String> = Vec::new();
+
+    if let Some(ref snap) = p.snapshot {
+        let s = snap.trim();
+        let _ = run_capture(&cand, &["controlvm", target_vm, "poweroff"], 20).await;
+        if let Err(e) = run_capture(&cand, &["snapshot", target_vm, "restore", s], 60).await {
+            return down(
+                "pipeline_naked_install",
+                &format!("failed to restore baseline snapshot '{s}': {e}"),
+            );
+        }
+        steps.push(format!("Restored snapshot '{s}' on '{target_vm}'"));
+    }
+
+    match run_capture(&cand, &["startvm", target_vm, "--type", "headless"], 45).await {
+        Ok(_) => steps.push(format!("Started VM '{target_vm}' headlessly")),
+        Err(e) if e.contains("already locked") || e.contains("already running") => {
+            steps.push(format!("VM '{target_vm}' already running"));
+        }
+        Err(e) => {
+            return down(
+                "pipeline_naked_install",
+                &format!("failed to start '{target_vm}': {e}"),
+            );
+        }
+    }
+
+    let repo_url = if repo.starts_with("http://") || repo.starts_with("https://") {
+        repo.to_string()
+    } else {
+        format!("https://github.com/{repo}.git")
+    };
+
+    let guest_cmd = p.command.clone().unwrap_or_else(|| {
+        if p.linux {
+            format!(
+                "rm -rf /tmp/naked-test && git clone --depth 1 '{repo_url}' /tmp/naked-test && cd /tmp/naked-test && cargo test --workspace"
+            )
+        } else {
+            format!(
+                "if exist C:\\naked-test rmdir /s /q C:\\naked-test & git clone --depth 1 {repo_url} C:\\naked-test && cd /d C:\\naked-test && cargo test --workspace"
+            )
+        }
+    });
+
+    let (exe, shell_flag) = if p.linux {
+        ("/bin/bash", "-lc")
+    } else {
+        ("cmd.exe", "/c")
+    };
+
+    let exec_res = run_capture(
+        &cand,
+        &[
+            "guestcontrol",
+            target_vm,
+            "run",
+            "--username",
+            &p.user,
+            "--password",
+            &p.pass,
+            "--wait-stdout",
+            "--wait-stderr",
+            "--exe",
+            exe,
+            "--",
+            shell_flag,
+            &guest_cmd,
+        ],
+        180,
+    )
+    .await;
+
+    if let Some(ref snap) = p.snapshot {
+        let s = snap.trim();
+        let _ = run_capture(&cand, &["controlvm", target_vm, "poweroff"], 20).await;
+        let _ = run_capture(&cand, &["snapshot", target_vm, "restore", s], 60).await;
+        steps.push(format!("Rolled back '{target_vm}' to '{s}'"));
+    }
+
+    match exec_res {
+        Ok(output) => {
+            steps.push("Guest install/test command succeeded".to_string());
+            json!({
+                "tool": "pipeline_naked_install",
+                "status": "ok",
+                "repo": repo,
+                "baseline_vm": target_vm,
+                "verified": true,
+                "steps": steps,
+                "output": output.chars().take(8000).collect::<String>(),
+            })
+        }
+        Err(e) => {
+            steps.push(format!("Guest install/test failed: {e}"));
+            json!({
+                "tool": "pipeline_naked_install",
+                "status": "error",
+                "repo": repo,
+                "baseline_vm": target_vm,
+                "verified": false,
+                "steps": steps,
+                "reason": e,
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -553,5 +691,49 @@ mod tests {
         if !crate::vm::mutate_allowed() {
             assert_eq!(res.get("status"), Some(&json!("error")));
         }
+    }
+
+    #[tokio::test]
+    async fn pipeline_naked_install_requires_user_and_confirm() {
+        let no_confirm = pipeline_naked_install(NakedInstallParams {
+            repo: "sandraschi/vmcraft".to_string(),
+            baseline_vm: Some("ubu-2404-lts".to_string()),
+            user: "user".to_string(),
+            pass: "user".to_string(),
+            snapshot: None,
+            command: None,
+            linux: true,
+            confirm: false,
+        })
+        .await;
+        if !crate::vm::mutate_allowed() {
+            assert_eq!(no_confirm.get("status"), Some(&json!("error")));
+        }
+
+        let no_user = pipeline_naked_install(NakedInstallParams {
+            repo: "sandraschi/vmcraft".to_string(),
+            baseline_vm: Some("ubu-2404-lts".to_string()),
+            user: "".to_string(),
+            pass: "".to_string(),
+            snapshot: None,
+            command: None,
+            linux: true,
+            confirm: true,
+        })
+        .await;
+        assert_eq!(no_user.get("status"), Some(&json!("down")));
+
+        let bad_repo = pipeline_naked_install(NakedInstallParams {
+            repo: "bad;rm -rf /".to_string(),
+            baseline_vm: Some("ubu-2404-lts".to_string()),
+            user: "user".to_string(),
+            pass: "user".to_string(),
+            snapshot: None,
+            command: None,
+            linux: true,
+            confirm: true,
+        })
+        .await;
+        assert_eq!(bad_repo.get("status"), Some(&json!("down")));
     }
 }
