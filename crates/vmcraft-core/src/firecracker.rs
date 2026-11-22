@@ -27,21 +27,30 @@ fn err(tool: &str, reason: &str) -> Value {
 /// Check if WSL2 is present, running, and has `/dev/kvm` available.
 pub async fn firecracker_probe() -> Value {
     let mut cmd = TokioCommand::new("wsl.exe");
-    cmd.args(["-e", "sh", "-c", "test -e /dev/kvm && echo 'kvm_ok' || echo 'no_kvm'"]);
+    cmd.args([
+        "-e",
+        "sh",
+        "-c",
+        "test -e /dev/kvm && echo 'kvm_ok' || echo 'no_kvm'",
+    ]);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     match timeout(Duration::from_secs(5), cmd.output()).await {
         Ok(Ok(out)) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let has_kvm = stdout.contains("kvm_ok");
-            
+
             // Check if firecracker binary is installed in WSL2
             let mut fc_check = TokioCommand::new("wsl.exe");
             fc_check.args(["-e", "sh", "-c", "which firecracker 2>/dev/null || echo ''"]);
             let fc_installed = match timeout(Duration::from_secs(5), fc_check.output()).await {
                 Ok(Ok(fc_out)) => {
                     let path = String::from_utf8_lossy(&fc_out.stdout).trim().to_string();
-                    if !path.is_empty() { Some(path) } else { None }
+                    if !path.is_empty() {
+                        Some(path)
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };
@@ -93,7 +102,10 @@ pub async fn firecracker_list() -> Value {
                 "instances": instances,
             })
         }
-        Ok(Err(e)) => down("firecracker_list", &format!("failed to list firecracker instances: {e}")),
+        Ok(Err(e)) => down(
+            "firecracker_list",
+            &format!("failed to list firecracker instances: {e}"),
+        ),
         Err(_) => down("firecracker_list", "firecracker_list timed out"),
     }
 }
@@ -120,9 +132,9 @@ pub async fn firecracker_spawn(p: FirecrackerSpawnParams) -> Value {
     }
 
     let socket_path = format!("/tmp/firecracker-{}.socket", p.vm_id);
-    let boot_args = p.boot_args.unwrap_or_else(|| {
-        "console=ttyS0 reboot=k panic=1 pci=off init=/bin/sh".to_string()
-    });
+    let boot_args = p
+        .boot_args
+        .unwrap_or_else(|| "console=ttyS0 reboot=k panic=1 pci=off init=/bin/sh".to_string());
 
     // Script to launch firecracker daemon, configure via curl, and boot micro-VM
     let script = format!(
@@ -185,7 +197,9 @@ echo "$FC_PID"
 
     let mut cmd = TokioCommand::new("wsl.exe");
     cmd.args(["-e", "sh"]);
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,

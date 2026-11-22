@@ -218,6 +218,12 @@ pub struct SnapshotItem {
     pub description: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct FirecrackerInstance {
+    pub pid: String,
+    pub binary: String,
+}
+
 pub enum AppMessage {
     Status(serde_json::Value),
     VmList(serde_json::Value),
@@ -268,10 +274,14 @@ pub struct VmApp {
     detonate_guest_out: String,
     detonate_host_out: String,
     detonate_airgap: bool,
-    swarm_count: usize,
-    swarm_selected_cell: Option<usize>,
+    swarm_instances: Vec<FirecrackerInstance>,
+    swarm_selected_idx: Option<usize>,
+    swarm_spawn_id: String,
     swarm_kernel: String,
     swarm_rootfs: String,
+    swarm_kvm_available: Option<bool>,
+    swarm_fc_installed: Option<bool>,
+    swarm_probe_reason: Option<String>,
 }
 
 impl VmApp {
@@ -330,10 +340,14 @@ impl VmApp {
             detonate_guest_out: "C:\\detonate\\out.asm".to_string(),
             detonate_host_out: "out.asm".to_string(),
             detonate_airgap: true,
-            swarm_count: 24,
-            swarm_selected_cell: None,
+            swarm_instances: Vec::new(),
+            swarm_selected_idx: None,
+            swarm_spawn_id: "microvm-1".to_string(),
             swarm_kernel: "/vmlinux".to_string(),
             swarm_rootfs: "/rootfs.ext4".to_string(),
+            swarm_kvm_available: None,
+            swarm_fc_installed: None,
+            swarm_probe_reason: None,
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -527,6 +541,46 @@ impl VmApp {
                         self.airgap_active = true;
                     } else if title == "Airgap Reconnect" {
                         self.airgap_active = false;
+                    } else if title == "Firecracker Probe" {
+                        if value.get("status").and_then(|v| v.as_str()) == Some("ok") {
+                            self.swarm_kvm_available =
+                                value.get("kvm_available").and_then(|v| v.as_bool());
+                            self.swarm_fc_installed =
+                                value.get("installed").and_then(|v| v.as_bool());
+                            self.swarm_probe_reason = None;
+                        } else {
+                            self.swarm_kvm_available = Some(false);
+                            self.swarm_fc_installed = Some(false);
+                            self.swarm_probe_reason = value
+                                .get("reason")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                        }
+                    } else if title == "Firecracker List" {
+                        self.swarm_instances.clear();
+                        if let Some(arr) = value.get("instances").and_then(|v| v.as_array()) {
+                            for item in arr {
+                                let pid = item
+                                    .get("pid")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let binary = item
+                                    .get("binary")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                if !pid.is_empty() {
+                                    self.swarm_instances
+                                        .push(FirecrackerInstance { pid, binary });
+                                }
+                            }
+                        }
+                        if let Some(idx) = self.swarm_selected_idx {
+                            if idx >= self.swarm_instances.len() {
+                                self.swarm_selected_idx = None;
+                            }
+                        }
                     }
                     let formatted =
                         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
@@ -1262,9 +1316,9 @@ impl eframe::App for VmApp {
                 });
             }
             Page::Swarm => {
-                ui.heading("Firecracker Micro-VM Swarm & Stigmergic Hive");
+                ui.heading("Firecracker Micro-VMs (WSL2 /dev/kvm)");
                 ui.label(
-                    "High-density KVM micro-VMs cooperating stigmergically over shared artifacts. Cold boot: < 15ms. RAM overhead: < 5MB/instance."
+                    "Probes, spawns, lists, and terminates Firecracker micro-VM processes inside WSL2.",
                 );
                 ui.separator();
 
@@ -1275,22 +1329,58 @@ impl eframe::App for VmApp {
                     if ui.button("📋 List Active Micro-VMs").clicked() {
                         self.spawn_command("Firecracker List", Command::FirecrackerList);
                     }
-                    ui.separator();
-                    ui.label("Hive Density:");
-                    ui.add(egui::Slider::new(&mut self.swarm_count, 6..=60).text("Micro-VMs"));
+                    if let Some(kvm) = self.swarm_kvm_available {
+                        let (bg, fg, label) = if kvm {
+                            (
+                                egui::Color32::from_rgb(6, 78, 59),
+                                ACCENT_EMERALD,
+                                "/dev/kvm: available",
+                            )
+                        } else {
+                            (
+                                egui::Color32::from_rgb(127, 29, 29),
+                                egui::Color32::from_rgb(254, 202, 202),
+                                "/dev/kvm: unavailable",
+                            )
+                        };
+                        render_badge(ui, label, bg, fg);
+                    }
+                    if let Some(installed) = self.swarm_fc_installed {
+                        let (bg, fg, label) = if installed {
+                            (
+                                egui::Color32::from_rgb(8, 51, 68),
+                                ACCENT_CYAN,
+                                "firecracker: installed",
+                            )
+                        } else {
+                            (
+                                egui::Color32::from_rgb(67, 20, 7),
+                                ACCENT_AMBER,
+                                "firecracker: not found",
+                            )
+                        };
+                        render_badge(ui, label, bg, fg);
+                    }
                 });
 
+                if let Some(ref reason) = self.swarm_probe_reason {
+                    ui.colored_label(ACCENT_AMBER, format!("Probe note: {reason}"));
+                }
+
                 ui.horizontal(|ui| {
+                    ui.label("VM ID:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.swarm_spawn_id).desired_width(120.0),
+                    );
                     ui.label("Kernel:");
                     ui.text_edit_singleline(&mut self.swarm_kernel);
                     ui.label("Rootfs:");
                     ui.text_edit_singleline(&mut self.swarm_rootfs);
-                    if ui.button("🚀 Spawn Selected Micro-VM").clicked() {
-                        let id = format!("microvm-{}", self.swarm_selected_cell.unwrap_or(1));
+                    if ui.button("🚀 Spawn Micro-VM").clicked() {
                         self.spawn_command(
                             "Firecracker Spawn",
                             Command::FirecrackerSpawn {
-                                vm_id: id,
+                                vm_id: self.swarm_spawn_id.clone(),
                                 vcpu_count: 1,
                                 mem_size_mib: 128,
                                 kernel_path: self.swarm_kernel.clone(),
@@ -1300,79 +1390,52 @@ impl eframe::App for VmApp {
                             },
                         );
                     }
+                    if ui.button("🛑 Kill VM ID").clicked() {
+                        self.spawn_command(
+                            "Firecracker Kill",
+                            Command::FirecrackerKill {
+                                vm_id: self.swarm_spawn_id.clone(),
+                                confirm: self.confirm(),
+                            },
+                        );
+                    }
                 });
 
                 ui.separator();
-                ui.label(RichText::new("Live Swarm Hive Grid (Cellular GPU Mesh):").strong());
+                ui.label(
+                    RichText::new(format!(
+                        "Active Firecracker Processes ({}):",
+                        self.swarm_instances.len()
+                    ))
+                    .strong(),
+                );
 
-                // Interactive GPU-rendered Honeycomb / Grid of micro-VMs
-                let desired_size = egui::vec2(ui.available_width().max(300.0), 220.0);
-                let (rect, resp) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
-                let painter = ui.painter_at(rect);
-
-                // Background container frame
-                painter.rect_filled(rect, egui::CornerRadius::same(6), egui::Color32::from_rgb(10, 15, 29));
-                painter.rect_stroke(rect, egui::CornerRadius::same(6), egui::Stroke::new(1.0, egui::Color32::from_rgb(30, 41, 59)), egui::StrokeKind::Inside);
-
-                let cols = 8;
-                let cell_w = 48.0;
-                let cell_h = 42.0;
-                let spacing = 8.0;
-
-                let mut clicked_cell: Option<usize> = None;
-
-                for i in 0..self.swarm_count {
-                    let col = i % cols;
-                    let row = i / cols;
-                    let x = rect.left() + 16.0 + (col as f32) * (cell_w + spacing) + if row % 2 == 1 { cell_w * 0.4 } else { 0.0 };
-                    let y = rect.top() + 16.0 + (row as f32) * (cell_h + spacing);
-                    let cell_rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
-
-                    // Stigmergic activity states
-                    let (fill, stroke_color, status_text) = match i % 4 {
-                        0 => (egui::Color32::from_rgb(6, 78, 59), ACCENT_EMERALD, "EXEC"),
-                        1 => (egui::Color32::from_rgb(67, 20, 7), ACCENT_AMBER, "TRACE"),
-                        2 => (egui::Color32::from_rgb(8, 51, 68), ACCENT_CYAN, "IDLE"),
-                        _ => (egui::Color32::from_rgb(30, 41, 59), egui::Color32::from_rgb(148, 163, 184), "SLEEP"),
-                    };
-
-                    let is_selected = self.swarm_selected_cell == Some(i + 1);
-                    let final_stroke = if is_selected {
-                        egui::Stroke::new(2.0, egui::Color32::WHITE)
-                    } else {
-                        egui::Stroke::new(1.0, stroke_color)
-                    };
-
-                    painter.rect_filled(cell_rect, egui::CornerRadius::same(8), fill);
-                    painter.rect_stroke(cell_rect, egui::CornerRadius::same(8), final_stroke, egui::StrokeKind::Inside);
-
-                    // Cell label
-                    let label = format!("#{}\n{}", i + 1, status_text);
-                    painter.text(
-                        cell_rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        label,
-                        egui::FontId::monospace(9.5),
-                        egui::Color32::WHITE,
+                if self.swarm_instances.is_empty() {
+                    ui.label(
+                        "No active Firecracker processes reported. Click 'List Active Micro-VMs' to query WSL2.",
                     );
-
-                    if let Some(pos) = resp.interact_pointer_pos() {
-                        if cell_rect.contains(pos) && resp.clicked() {
-                            clicked_cell = Some(i + 1);
-                        }
+                } else {
+                    let mut clicked_idx: Option<usize> = None;
+                    egui::Grid::new("firecracker_instances_grid")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("PID").strong());
+                            ui.label(RichText::new("Binary").strong());
+                            ui.label(RichText::new("Action").strong());
+                            ui.end_row();
+                            for (idx, inst) in self.swarm_instances.iter().enumerate() {
+                                let selected = self.swarm_selected_idx == Some(idx);
+                                if ui.selectable_label(selected, &inst.pid).clicked() {
+                                    clicked_idx = Some(idx);
+                                }
+                                ui.label(&inst.binary);
+                                ui.label("running");
+                                ui.end_row();
+                            }
+                        });
+                    if let Some(idx) = clicked_idx {
+                        self.swarm_selected_idx = Some(idx);
                     }
-                }
-
-                if let Some(c) = clicked_cell {
-                    self.swarm_selected_cell = Some(c);
-                }
-
-                if let Some(c) = self.swarm_selected_cell {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("Selected Micro-VM #{}", c)).strong().color(ACCENT_CYAN));
-                        render_badge(ui, "vCPU: 1 | RAM: 128 MB | /dev/kvm", egui::Color32::from_rgb(14, 116, 144), egui::Color32::WHITE);
-                        render_badge(ui, "VirtIO VSOCK: Connected", egui::Color32::from_rgb(6, 78, 59), ACCENT_EMERALD);
-                    });
                 }
 
                 ui.separator();
@@ -1604,10 +1667,14 @@ mod tests {
             detonate_guest_out: "C:\\detonate\\out.asm".to_string(),
             detonate_host_out: "out.asm".to_string(),
             detonate_airgap: true,
-            swarm_count: 24,
-            swarm_selected_cell: None,
+            swarm_instances: Vec::new(),
+            swarm_selected_idx: None,
+            swarm_spawn_id: "microvm-1".to_string(),
             swarm_kernel: "/vmlinux".to_string(),
             swarm_rootfs: "/rootfs.ext4".to_string(),
+            swarm_kvm_available: None,
+            swarm_fc_installed: None,
+            swarm_probe_reason: None,
         };
 
         let sample_json = serde_json::json!({
@@ -1627,6 +1694,85 @@ mod tests {
         assert_eq!(app.vms[1].name, "podman-machine-default");
         assert_eq!(app.vms[1].provider, "hyperv");
         assert_eq!(app.vm_name, "ubu-2404-lts");
+        assert_eq!(app.pending_tasks, 0);
+    }
+
+    #[test]
+    fn firecracker_probe_and_list_populate_state() {
+        let (tx, rx) = mpsc::channel();
+        let mut app = VmApp {
+            rt: None,
+            rt_error: None,
+            tx: tx.clone(),
+            rx,
+            pending_tasks: 2,
+            page: Page::Swarm,
+            status: String::new(),
+            host_info: None,
+            vms: Vec::new(),
+            snapshots: Vec::new(),
+            shot_image: None,
+            shot_texture: None,
+            bus_cmd: "vm.list".to_string(),
+            bus_params: "{}".to_string(),
+            vm_output: String::new(),
+            vm_name: String::new(),
+            ostype: "Ubuntu_64".to_string(),
+            memory_mb: "4096".to_string(),
+            snap_name: String::new(),
+            net_ip: "192.168.56.1".to_string(),
+            netmask: "255.255.255.0".to_string(),
+            net_name: String::new(),
+            disk_path: String::new(),
+            disk_gb: "20".to_string(),
+            shot_out: String::new(),
+            sandbox_code: String::new(),
+            sandbox_output: String::new(),
+            mutate_confirm: false,
+            dark_mode: true,
+            airgap_active: false,
+            disasm_code: String::new(),
+            detonate_keygen: String::new(),
+            detonate_target: String::new(),
+            detonate_disasm_exe: "ida64.exe".to_string(),
+            detonate_user: String::new(),
+            detonate_pass: String::new(),
+            detonate_guest_out: "C:\\detonate\\out.asm".to_string(),
+            detonate_host_out: "out.asm".to_string(),
+            detonate_airgap: true,
+            swarm_instances: Vec::new(),
+            swarm_selected_idx: None,
+            swarm_spawn_id: "microvm-1".to_string(),
+            swarm_kernel: "/vmlinux".to_string(),
+            swarm_rootfs: "/rootfs.ext4".to_string(),
+            swarm_kvm_available: None,
+            swarm_fc_installed: None,
+            swarm_probe_reason: None,
+        };
+
+        let _ = tx.send(AppMessage::CommandResult {
+            title: "Firecracker Probe".to_string(),
+            value: serde_json::json!({
+                "status": "ok",
+                "kvm_available": true,
+                "installed": false,
+            }),
+        });
+        let _ = tx.send(AppMessage::CommandResult {
+            title: "Firecracker List".to_string(),
+            value: serde_json::json!({
+                "status": "ok",
+                "instances": [
+                    { "pid": "4242", "binary": "/usr/local/bin/firecracker", "provider": "firecracker" }
+                ]
+            }),
+        });
+        app.drain();
+
+        assert_eq!(app.swarm_kvm_available, Some(true));
+        assert_eq!(app.swarm_fc_installed, Some(false));
+        assert_eq!(app.swarm_instances.len(), 1);
+        assert_eq!(app.swarm_instances[0].pid, "4242");
         assert_eq!(app.pending_tasks, 0);
     }
 }

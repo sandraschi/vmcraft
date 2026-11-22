@@ -7,7 +7,7 @@
 
 Pure-Rust ArtCraft Virtual Machine workstation for local virtualization management and agentic tooling. One unified Rust workspace providing an in-process core domain library (L1), a dual-mode human CLI and JSON-RPC Model Context Protocol (MCP) server (L2), and an interactive native egui desktop workstation (L3).
 
-Status: **v1.1.0, Tier 4** (L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs, ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation).
+Status: **v0.1.0 (pre-1.0, T1; 33 workspace tests)** - L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs (via WSL2), ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation.
 
 - Changes: [CHANGELOG.md](CHANGELOG.md)
 - Conversion Dossier: [docs/CONVERSION_DOSSIER.md](docs/CONVERSION_DOSSIER.md)
@@ -33,7 +33,24 @@ Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH)
 |---|---|---|
 | `crates/vmcraft-core` | L1 | In-process command dispatch bus (`Command::dispatch`), ArtCraft command bus registry (`commands_catalog`, `describe_command`, `parse_command`), VBoxManage orchestration, Hyper-V CIM probe, ephemeral sandbox execution, strict input validators. |
 | `crates/vmcraft-mcp` | L2 | Binary providing human CLI subcommands (`commands --json`, `describe`, `run`, `batch`, `vm`, `hyperv`, `snapshot`, etc.) and standard Model Context Protocol (MCP) JSON-RPC stdio. Dual-aliased to support both modern `vmcraft.*` names and legacy portmanteaus (`vm_management`, `snapshot_management`, `hyperv_management`, etc.). |
-| `crates/vmcraft-app` | L3 | Native eframe/egui desktop application with 9 functional tabs, non-blocking asynchronous message passing (`mpsc::channel`), live multi-hypervisor VM table, snapshot tree controls, in-app framebuffer image viewer, command bus explorer, and safety gating. |
+| `crates/vmcraft-app` | L3 | Native eframe/egui desktop application with 11 tabs (`Dashboard`, `VMs`, `Snapshots`, `Network`, `Disks`, `Shot`, `Detonate`, `Swarm`, `Sandbox`, `Commands`, `Help`), non-blocking asynchronous message passing (`mpsc::channel`), live multi-hypervisor VM table, snapshot controls, in-app framebuffer image viewer, command bus explorer, and safety gating. |
+
+---
+
+## Feature Matrix
+
+| Feature | Status | Notes |
+|---|---|---|
+| VirtualBox 7+ lifecycle (`vm_list`, `vm_info`, `vm_create`, `vm_start`, `vm_stop`, `vm_delete`) | Implemented | Shells out to `VBoxManage`; mutating ops gated behind `--yes` / `VMCRAFT_ALLOW_MUTATE=1`. |
+| Snapshots, Host-Only Networks, `.vdi` Disks, Framebuffer Screenshots | Implemented | `snapshot_*`, `network_*`, `disk_*`, `vm_shot` with in-app PNG preview. |
+| Hyper-V discovery & start/stop (`hyperv_list`, `hyperv_start`, `hyperv_stop`) | Implemented | Windows-only via PowerShell CIM; returns `status: down` when absent. |
+| ArtCraft Command Bus (`commands_catalog`, `describe_command`, `parse_command`, `dispatch`) | Implemented | 32 cataloged operations shared across L1/L2/L3. |
+| Ephemeral Sandbox (`sandbox_run`) | Implemented | 30s timeout local subprocess runner for `python` / `powershell` / `pwsh`. |
+| Airgap & Guest Control (`airgap_set`, `guest_exec`, `guest_copyto`, `guest_copyfrom`) | Implemented | Uses `VBoxManage` link-state / clipboard / DnD disablement and `guestcontrol`. |
+| Clean-Room Detonation & Naked Install (`pipeline_detonate`, `pipeline_naked_install`) | Partial | Implemented over VirtualBox `guestcontrol`; requires pre-configured baseline VM + Guest Additions. |
+| Firecracker KVM Micro-VMs (`firecracker_probe`, `firecracker_list`, `firecracker_spawn`, `firecracker_kill`) | Partial | Windows-host WSL2 bridge (`wsl.exe` + `/dev/kvm`); requires `firecracker` + kernel/rootfs inside WSL2. |
+| QEMU / native Linux KVM / macOS Virtualization.framework providers | Planned | Not yet implemented (`HANDOVER.md` next step). |
+| Live GUI control port (`--control PORT`) & `craft-ai-core` chat migration | Planned | Own `llm.rs` exists in `vmcraft-core`; control port not yet wired. |
 
 ---
 
@@ -159,7 +176,7 @@ vmcraft-mcp firecracker spawn --id "agent-worker-1" --kernel "/vmlinux" --rootfs
 ## Verification & Testing
 
 ```powershell
-# Run full workspace test suite (30 tests)
+# Run full workspace test suite (33 tests)
 cargo test --workspace
 
 # Lint with strict zero-warning policy

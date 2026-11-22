@@ -697,17 +697,27 @@ async fn call_tool(name: &str, args: &Value) -> Value {
         "vmcraft.firecracker_probe" | "firecracker_probe" => {
             dispatch(Command::FirecrackerProbe).await
         }
-        "vmcraft.firecracker_list" | "firecracker_list" => {
-            dispatch(Command::FirecrackerList).await
-        }
+        "vmcraft.firecracker_list" | "firecracker_list" => dispatch(Command::FirecrackerList).await,
         "vmcraft.firecracker_spawn" | "firecracker_spawn" => {
             dispatch(Command::FirecrackerSpawn {
                 vm_id: s("vm_id"),
-                vcpu_count: args.get("vcpu").and_then(|v| v.as_u64()).map(|n| n as u32).unwrap_or(1),
-                mem_size_mib: args.get("mem_size_mib").and_then(|v| v.as_u64()).map(|n| n as u32).unwrap_or(256),
+                vcpu_count: args
+                    .get("vcpu")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as u32)
+                    .unwrap_or(1),
+                mem_size_mib: args
+                    .get("mem_size_mib")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as u32)
+                    .unwrap_or(256),
                 kernel_path: s("kernel_path"),
                 rootfs_path: s("rootfs_path"),
-                boot_args: if s("boot_args").is_empty() { None } else { Some(s("boot_args")) },
+                boot_args: if s("boot_args").is_empty() {
+                    None
+                } else {
+                    Some(s("boot_args"))
+                },
                 confirm: b(args, "confirm") || b(args, "yes"),
             })
             .await
@@ -997,9 +1007,13 @@ async fn main() {
                 })
                 .await,
             ),
-            FirecrackerOp::Kill { id, yes } => {
-                print_json(&dispatch(Command::FirecrackerKill { vm_id: id, confirm: yes }).await)
-            }
+            FirecrackerOp::Kill { id, yes } => print_json(
+                &dispatch(Command::FirecrackerKill {
+                    vm_id: id,
+                    confirm: yes,
+                })
+                .await,
+            ),
         },
         Some(Top::Vm { op }) => match op {
             VmOp::List { limit, .. } => print_json(&dispatch(Command::VmList { limit }).await),
