@@ -1104,7 +1104,7 @@ pub fn parse_command(id: &str, params: &Value) -> Result<Command, String> {
                 confirm,
             })
         }
-        "pipeline.naked_install" | "naked_install" | "naked_test" => {
+        "pipeline.naked.install" | "naked.install" | "naked.test" => {
             let repo = params
                 .get("repo")
                 .and_then(|v| v.as_str())
@@ -1221,5 +1221,159 @@ mod tests {
     fn dispatch_future_is_send() {
         fn assert_send<T: Send>(_: T) {}
         assert_send(dispatch(Command::Status));
+    }
+
+    #[test]
+    fn commands_catalog_has_unique_ids() {
+        let cat = commands_catalog();
+        let arr = cat.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        assert!(arr.len() >= 30);
+        let mut seen = std::collections::HashSet::new();
+        for item in arr {
+            let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            assert!(!id.is_empty());
+            assert!(seen.insert(id.to_string()), "duplicate command id: {id}");
+        }
+    }
+
+    #[test]
+    fn describe_command_resolves_every_catalog_entry() {
+        let cat = commands_catalog();
+        let arr = cat.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        for item in arr {
+            let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let desc = describe_command(id);
+            assert!(desc.is_some(), "describe_command returned None for '{id}'");
+        }
+    }
+
+    #[test]
+    fn parse_command_rejects_unknown_verb() {
+        let res = parse_command("nope.unknown", &json!({}));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn parse_command_roundtrips_vm_and_snapshot_verbs() {
+        assert!(matches!(
+            parse_command("vm.list", &json!({"limit": 10})),
+            Ok(Command::VmList { limit: Some(10) })
+        ));
+        assert!(matches!(
+            parse_command("vm.info", &json!({"vm": "ubu-2404-lts"})),
+            Ok(Command::VmInfo { .. })
+        ));
+        assert!(matches!(
+            parse_command(
+                "snapshot.create",
+                &json!({"vm": "u", "snap": "s", "confirm": true})
+            ),
+            Ok(Command::SnapshotCreate { confirm: true, .. })
+        ));
+        assert!(matches!(
+            parse_command(
+                "snapshot.restore",
+                &json!({"vm": "u", "snap": "s", "confirm": true})
+            ),
+            Ok(Command::SnapshotRestore { confirm: true, .. })
+        ));
+    }
+
+    #[test]
+    fn parse_command_roundtrips_airgap_and_guest_verbs() {
+        assert!(matches!(
+            parse_command("airgap.set", &json!({"vm": "u", "disconnect": true})),
+            Ok(Command::AirgapSet {
+                disconnect: true,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse_command("guest.exec", &json!({"vm": "u", "exe": "/bin/true"})),
+            Ok(Command::GuestExec { .. })
+        ));
+    }
+
+    #[test]
+    fn parse_command_roundtrips_pipeline_naked_install() {
+        let parsed = parse_command(
+            "pipeline.naked_install",
+            &json!({
+                "repo": "sandraschi/vmcraft",
+                "baseline_vm": "ubu-2404-lts",
+                "user": "user",
+                "pass": "user",
+                "snapshot": "clean-desktop-2026-11-22",
+                "linux": true,
+                "confirm": true
+            }),
+        );
+        assert!(matches!(
+            parsed,
+            Ok(Command::PipelineNakedInstall {
+                linux: true,
+                confirm: true,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn parse_command_roundtrips_firecracker_verbs() {
+        assert!(matches!(
+            parse_command("firecracker.probe", &json!({})),
+            Ok(Command::FirecrackerProbe)
+        ));
+        assert!(matches!(
+            parse_command("firecracker.list", &json!({})),
+            Ok(Command::FirecrackerList)
+        ));
+        assert!(matches!(
+            parse_command(
+                "firecracker.spawn",
+                &json!({"vm_id": "m1", "confirm": true})
+            ),
+            Ok(Command::FirecrackerSpawn { confirm: true, .. })
+        ));
+        assert!(matches!(
+            parse_command("firecracker.kill", &json!({"vm_id": "m1", "confirm": true})),
+            Ok(Command::FirecrackerKill { confirm: true, .. })
+        ));
+    }
+
+    #[test]
+    fn parse_command_roundtrips_network_and_disk_verbs() {
+        assert!(matches!(
+            parse_command("network.list", &json!({})),
+            Ok(Command::NetworkList)
+        ));
+        assert!(matches!(
+            parse_command("disk.list", &json!({})),
+            Ok(Command::DiskList)
+        ));
+    }
+
+    #[test]
+    fn parse_command_roundtrips_sandbox_and_hyperv_verbs() {
+        assert!(matches!(
+            parse_command(
+                "sandbox.run",
+                &json!({"lang": "python", "code": "print(1)"})
+            ),
+            Ok(Command::SandboxRun { .. })
+        ));
+        assert!(matches!(
+            parse_command("hyperv.list", &json!({})),
+            Ok(Command::HypervList)
+        ));
+    }
+
+    #[tokio::test]
+    async fn dispatch_invalid_vm_returns_down_without_panic() {
+        let res = dispatch(Command::VmInfo {
+            vm: "bad;vm&name".to_string(),
+        })
+        .await;
+        assert_eq!(res.get("status"), Some(&json!("down")));
     }
 }

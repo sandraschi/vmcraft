@@ -171,6 +171,79 @@ fn render_badge(ui: &mut egui::Ui, label: &str, bg: egui::Color32, fg: egui::Col
     }
 }
 
+/// SOTA switch_on_hover implementation for egui top menu bars.
+fn switch_on_hover(ctx: &egui::Context, titles: &[egui::Response]) {
+    let is_open =
+        |t: &egui::Response| egui::Popup::is_id_open(ctx, egui::Popup::default_response_id(t));
+    if !titles.iter().any(is_open) {
+        return;
+    }
+    if let Some(title) = titles
+        .iter()
+        .find(|t| t.hovered() && !t.clicked() && !is_open(t))
+    {
+        egui::Popup::open_id(ctx, egui::Popup::default_response_id(title));
+    }
+}
+
+/// Filter registered ArtCraft command bus entries for the Command Palette.
+fn filter_palette_commands(query: &str) -> Vec<(String, String, String)> {
+    let q = query.trim().to_lowercase();
+    let catalog = vmcraft_core::commands_catalog();
+    let Some(arr) = catalog.as_array() else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|item| {
+            let id = item.get("id").and_then(|v| v.as_str())?.to_string();
+            let label = item
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let desc = item
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if q.is_empty()
+                || id.to_lowercase().contains(&q)
+                || label.to_lowercase().contains(&q)
+                || desc.to_lowercase().contains(&q)
+            {
+                Some((id, label, desc))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HelpTab {
+    GetStarted,
+    Functions,
+    Usage,
+    Tips,
+    Safety,
+    Planned,
+    OtherCrafts,
+}
+
+impl HelpTab {
+    fn label(self) -> &'static str {
+        match self {
+            HelpTab::GetStarted => "Get Started",
+            HelpTab::Functions => "Functions",
+            HelpTab::Usage => "Usage (GUI, CLI & MCP)",
+            HelpTab::Tips => "Tips & Tricks",
+            HelpTab::Safety => "Pitfalls & Safety",
+            HelpTab::Planned => "Planned Extensions",
+            HelpTab::OtherCrafts => "Other Crafts",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Dashboard,
@@ -282,6 +355,12 @@ pub struct VmApp {
     swarm_kvm_available: Option<bool>,
     swarm_fc_installed: Option<bool>,
     swarm_probe_reason: Option<String>,
+    help_tab: HelpTab,
+    show_palette: bool,
+    palette_query: String,
+    show_shortcuts: bool,
+    show_about: bool,
+    show_licenses: bool,
 }
 
 impl VmApp {
@@ -348,6 +427,12 @@ impl VmApp {
             swarm_kvm_available: None,
             swarm_fc_installed: None,
             swarm_probe_reason: None,
+            help_tab: HelpTab::GetStarted,
+            show_palette: false,
+            palette_query: String::new(),
+            show_shortcuts: false,
+            show_about: false,
+            show_licenses: false,
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -599,8 +684,28 @@ impl eframe::App for VmApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain();
 
-        // Handle Ctrl+MouseWheel zooming
+        // Handle Ctrl+MouseWheel zooming and global shortcuts
         handle_zoom(ui.ctx());
+        ui.ctx().input(|i| {
+            if (i.modifiers.ctrl && i.key_pressed(egui::Key::K))
+                || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::P))
+            {
+                self.show_palette = !self.show_palette;
+            }
+            if i.key_pressed(egui::Key::F1) || (i.modifiers.ctrl && i.key_pressed(egui::Key::Slash))
+            {
+                self.show_shortcuts = !self.show_shortcuts;
+            }
+            if i.key_pressed(egui::Key::F5) {
+                self.refresh_all();
+            }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Num1) {
+                ui.ctx().set_zoom_factor(1.0);
+            }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Q) {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        });
 
         if self.pending_tasks > 0 {
             ui.ctx().request_repaint();
@@ -611,12 +716,171 @@ impl eframe::App for VmApp {
             return;
         }
 
+        // Standard Craft Menu Bar (Session, Edit, View, Command, Window, Help)
+        egui::MenuBar::new().ui(ui, |ui| {
+            let mut titles = Vec::with_capacity(6);
+
+            let r_session = ui.menu_button("Session", |ui| {
+                if ui.button("Refresh Hypervisors\tF5").clicked() {
+                    self.refresh_all();
+                    ui.close();
+                }
+                if ui
+                    .button(if self.mutate_confirm {
+                        "Disable Mutate Gate"
+                    } else {
+                        "Enable Mutate Gate"
+                    })
+                    .clicked()
+                {
+                    self.mutate_confirm = !self.mutate_confirm;
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Quit\tCtrl+Q").clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    ui.close();
+                }
+            });
+            titles.push(r_session.response);
+
+            let r_edit = ui.menu_button("Edit", |ui| {
+                if ui.button("Copy Output").clicked() {
+                    ui.ctx().copy_text(self.vm_output.clone());
+                    ui.close();
+                }
+                if ui.button("Clear Output").clicked() {
+                    self.vm_output.clear();
+                    ui.close();
+                }
+            });
+            titles.push(r_edit.response);
+
+            let r_view = ui.menu_button("View", |ui| {
+                if ui.button("Zoom In").clicked() {
+                    let z = (ui.ctx().zoom_factor() * 1.1).clamp(0.6, 2.5);
+                    ui.ctx().set_zoom_factor(z);
+                    ui.close();
+                }
+                if ui.button("Zoom Out").clicked() {
+                    let z = (ui.ctx().zoom_factor() / 1.1).clamp(0.6, 2.5);
+                    ui.ctx().set_zoom_factor(z);
+                    ui.close();
+                }
+                if ui.button("Reset Zoom (100%)\tCtrl+1").clicked() {
+                    ui.ctx().set_zoom_factor(1.0);
+                    ui.close();
+                }
+                ui.separator();
+                ui.menu_button("Interface Theme", |ui| {
+                    if ui.selectable_label(self.dark_mode, "Dark").clicked() {
+                        self.dark_mode = true;
+                        apply_theme(ui.ctx(), true);
+                        ui.close();
+                    }
+                    if ui.selectable_label(!self.dark_mode, "Light").clicked() {
+                        self.dark_mode = false;
+                        apply_theme(ui.ctx(), false);
+                        ui.close();
+                    }
+                });
+            });
+            titles.push(r_view.response);
+
+            let r_cmd = ui.menu_button("Command", |ui| {
+                if ui.button("Command Palette...\tCtrl+K").clicked() {
+                    self.show_palette = true;
+                    ui.close();
+                }
+                if ui.button("Command Bus Tab").clicked() {
+                    self.page = Page::Commands;
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Probe Hypervisors").clicked() {
+                    self.spawn_status();
+                    ui.close();
+                }
+                if ui.button("Probe Firecracker KVM").clicked() {
+                    self.spawn_command("Firecracker Probe", Command::FirecrackerProbe);
+                    ui.close();
+                }
+            });
+            titles.push(r_cmd.response);
+
+            let r_win = ui.menu_button("Window", |ui| {
+                for p in [
+                    Page::Dashboard,
+                    Page::Vms,
+                    Page::Snapshots,
+                    Page::Network,
+                    Page::Disks,
+                    Page::Shot,
+                    Page::Detonate,
+                    Page::Swarm,
+                    Page::Sandbox,
+                    Page::Commands,
+                    Page::Help,
+                ] {
+                    if ui.selectable_label(self.page == p, p.label()).clicked() {
+                        self.page = p;
+                        ui.close();
+                    }
+                }
+            });
+            titles.push(r_win.response);
+
+            let r_help = ui.menu_button("Help", |ui| {
+                if ui.button("Command Palette...\tCtrl+K").clicked() {
+                    self.show_palette = true;
+                    ui.close();
+                }
+                if ui.button("Keyboard Shortcuts...\tF1").clicked() {
+                    self.show_shortcuts = true;
+                    ui.close();
+                }
+                ui.separator();
+                for tab in [
+                    HelpTab::GetStarted,
+                    HelpTab::Usage,
+                    HelpTab::Tips,
+                    HelpTab::Safety,
+                    HelpTab::Planned,
+                    HelpTab::OtherCrafts,
+                ] {
+                    if ui.button(format!("{}...", tab.label())).clicked() {
+                        self.help_tab = tab;
+                        self.page = Page::Help;
+                        ui.close();
+                    }
+                }
+                if ui.button("Project Files & Docs...").clicked() {
+                    self.help_tab = HelpTab::Functions;
+                    self.page = Page::Help;
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Licenses & Notices...").clicked() {
+                    self.show_licenses = true;
+                    ui.close();
+                }
+                if ui.button("About vmcraft").clicked() {
+                    self.show_about = true;
+                    ui.close();
+                }
+            });
+            titles.push(r_help.response);
+
+            switch_on_hover(ui.ctx(), &titles);
+        });
+        ui.separator();
+
         // Top bar
         ui.horizontal(|ui| {
             ui.heading(RichText::new("vmcraft").strong().color(ACCENT_CYAN));
             render_badge(
                 ui,
-                "v1.0.0 Tier 4",
+                "v0.1.0 (T1)",
                 egui::Color32::from_rgb(14, 116, 144),
                 egui::Color32::WHITE,
             );
@@ -1575,23 +1839,206 @@ impl eframe::App for VmApp {
                 });
             }
             Page::Help => {
-                ui.heading("vmcraft — Pure-Rust ArtCraft VM Workstation");
-                ui.label(
-                    "• Status: Queries VirtualBox and Hyper-V installation and hypervisor health.",
-                );
-                ui.label("• VMs: Multi-hypervisor VM manager (VirtualBox + Hyper-V), inspect hardware info, start/stop/create/delete.");
-                ui.label("• Snapshots: Structured tree listing, point-in-time state capture, restore, and delete.");
-                ui.label("• Network: Manage VirtualBox host-only networking interfaces.");
-                ui.label("• Disks: Inspect and provision virtual disk images (.vdi).");
-                ui.label(
-                    "• Shot: Capture real-time framebuffer PNG screenshots and render them directly in-app.",
-                );
-                ui.label("• Sandbox: Safe 30s isolated script execution.");
-                ui.label("• Commands: ArtCraft Command Bus interactive dispatcher and full registry catalog.");
+                ui.heading("vmcraft Help Center");
+                ui.horizontal_wrapped(|ui| {
+                    for tab in [
+                        HelpTab::GetStarted,
+                        HelpTab::Functions,
+                        HelpTab::Usage,
+                        HelpTab::Tips,
+                        HelpTab::Safety,
+                        HelpTab::Planned,
+                        HelpTab::OtherCrafts,
+                    ] {
+                        let selected = self.help_tab == tab;
+                        let btn = if selected {
+                            ui.button(RichText::new(tab.label()).strong().color(ACCENT_CYAN))
+                        } else {
+                            ui.button(tab.label())
+                        };
+                        if btn.clicked() {
+                            self.help_tab = tab;
+                        }
+                    }
+                });
                 ui.separator();
-                ui.label(RichText::new("Mutating Operations Safety Gate:").strong());
-                ui.label("Destructive/mutating actions (create, delete, start, stop) require checking 'allow mutate' or setting VMCRAFT_ALLOW_MUTATE=1 in the environment.");
+                egui::ScrollArea::vertical().show(ui, |ui| match self.help_tab {
+                    HelpTab::GetStarted => {
+                        ui.label(RichText::new("1. Launch & Discovery").strong());
+                        ui.label("Status auto-polls VirtualBox and Hyper-V on startup. Click Refresh (F5) anytime.");
+                        ui.label(RichText::new("2. Select a VM").strong());
+                        ui.label("Open Dashboard and click Select on any VM (e.g. ubu-2404-lts) to target it across tabs.");
+                        ui.label(RichText::new("3. Create a Baseline Snapshot").strong());
+                        ui.label("Open Snapshots, enter a name (e.g. clean-base), enable 'allow mutate', and click Create.");
+                        ui.label(RichText::new("4. Run & Inspect").strong());
+                        ui.label("Use VMs, Shot, Detonate, Swarm, Sandbox, or Commands (Ctrl+K) to operate the guest.");
+                        ui.label(RichText::new("5. Roll Back").strong());
+                        ui.label("Restore your baseline snapshot when done to keep the VM pristine.");
+                    }
+                    HelpTab::Functions => {
+                        ui.label("• Dashboard & VMs: VirtualBox 7+ and Hyper-V discovery, inspect, start, stop, create, delete.");
+                        ui.label("• Snapshots: List, create, restore, and delete VirtualBox snapshots.");
+                        ui.label("• Network & Disks: Host-only interfaces and .vdi image inspection/creation.");
+                        ui.label("• Shot: Live framebuffer PNG capture rendered in-app.");
+                        ui.label("• Detonate: Airgap link severing + guestcontrol execution + snapshot rollback.");
+                        ui.label("• Swarm: WSL2 /dev/kvm Firecracker probe, process list, spawn, and kill.");
+                        ui.label("• Sandbox: Isolated 30s Python/PowerShell runner.");
+                        ui.label("• Commands: 32-operation ArtCraft Command Bus explorer and dispatcher.");
+                    }
+                    HelpTab::Usage => {
+                        ui.label(RichText::new("GUI").strong());
+                        ui.label("Use the top menu bar (Session, Edit, View, Command, Window, Help) or tab bar. Ctrl+K opens the Command Palette; F1 opens Keyboard Shortcuts.");
+                        ui.separator();
+                        ui.label(RichText::new("CLI (vmcraft-mcp)").strong());
+                        ui.monospace("vmcraft-mcp status\nvmcraft-mcp vm list\nvmcraft-mcp vm info --vm ubu-2404-lts\nvmcraft-mcp pipeline naked-test --repo owner/repo --baseline ubu-2404-lts --snapshot clean-desktop-2026-11-22 --user user --pass user --linux --yes");
+                        ui.separator();
+                        ui.label(RichText::new("MCP stdio").strong());
+                        ui.monospace("vmcraft-mcp mcp");
+                    }
+                    HelpTab::Tips => {
+                        ui.label("• Always create a clean snapshot before running untrusted binaries or installers.");
+                        ui.label("• Use Ctrl+K to search and populate any of the 32 Command Bus verbs immediately.");
+                        ui.label("• In CLI `guest exec`, pass hyphenated guest args with `=` syntax: `--args=-lc`.");
+                        ui.label("• Press Ctrl+1 (or View -> Reset Zoom) to reset UI scaling to 100%.");
+                    }
+                    HelpTab::Safety => {
+                        ui.label(RichText::new("Mutating Operations Safety Gate").strong());
+                        ui.label("State-changing verbs (vm create/start/stop/delete, snapshot create/restore/delete, network create/remove, airgap, guest.exec, pipeline.detonate, pipeline.naked_install, firecracker spawn/kill) require checking 'allow mutate' in the toolbar, passing `--yes`, or setting `VMCRAFT_ALLOW_MUTATE=1`.");
+                        ui.separator();
+                        ui.label("• Guest Additions must be running inside the guest for `guestcontrol` and `pipeline.naked_install`.");
+                        ui.label("• Firecracker commands require `wsl.exe` with `/dev/kvm` and `firecracker` installed inside WSL2.");
+                    }
+                    HelpTab::Planned => {
+                        ui.label("• Native QEMU/KVM (Linux) and Apple Virtualization.framework (macOS) providers.");
+                        ui.label("• Live GUI `--control PORT` bridge.");
+                        ui.label("• Migrate `vmcraft-core/src/llm.rs` to shared `craft-ai-core`.");
+                    }
+                    HelpTab::OtherCrafts => {
+                        ui.label("• devcraft: Fleet orchestration and clean-room `naked-test` consumer install verification.");
+                        ui.label("• wincraft: Windows host diagnostics; vmcraft handles VM/hypervisor isolation.");
+                        ui.label("• craft-launcher: Launches and manages installed Craft workstations.");
+                    }
+                });
             }
+        }
+
+        // Command Palette modal (Ctrl+K / Ctrl+Shift+P)
+        if self.show_palette {
+            let mut open = self.show_palette;
+            let mut exec_cmd: Option<(String, Command)> = None;
+            egui::Window::new("Command Palette")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(true)
+                .default_width(520.0)
+                .show(ui.ctx(), |ui| {
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.palette_query)
+                            .hint_text("Type a command ID or keyword (e.g. vm.list, firecracker, snapshot)...")
+                            .desired_width(f32::INFINITY),
+                    );
+                    resp.request_focus();
+                    let matches = filter_palette_commands(&self.palette_query);
+                    let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if enter_pressed {
+                        if let Some((id, _, _)) = matches.first() {
+                            if let Ok(cmd) = vmcraft_core::parse_command(id, &serde_json::json!({}))
+                            {
+                                exec_cmd = Some((format!("Palette: {id}"), cmd));
+                                self.show_palette = false;
+                            } else {
+                                self.bus_cmd = id.clone();
+                                self.bus_params = "{}".to_string();
+                                self.page = Page::Commands;
+                                self.show_palette = false;
+                            }
+                        }
+                    }
+                    ui.separator();
+                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                        for (id, label, desc) in matches.into_iter().take(20) {
+                            if ui
+                                .selectable_label(false, format!("{id}  -  {label} ({desc})"))
+                                .clicked()
+                            {
+                                self.bus_cmd = id;
+                                self.bus_params = "{}".to_string();
+                                self.page = Page::Commands;
+                                self.show_palette = false;
+                            }
+                        }
+                    });
+                });
+            if !open {
+                self.show_palette = false;
+            }
+            if let Some((title, cmd)) = exec_cmd {
+                self.spawn_command(title, cmd);
+            }
+        }
+
+        // Keyboard Shortcuts modal (F1 / Ctrl+/)
+        if self.show_shortcuts {
+            let mut open = self.show_shortcuts;
+            egui::Window::new("Keyboard Shortcuts")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    egui::Grid::new("shortcuts_grid")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("Ctrl+K / Ctrl+Shift+P").strong());
+                            ui.label("Open Command Palette");
+                            ui.end_row();
+                            ui.label(RichText::new("F1 / Ctrl+/").strong());
+                            ui.label("Open Keyboard Shortcuts");
+                            ui.end_row();
+                            ui.label(RichText::new("F5").strong());
+                            ui.label("Refresh Hypervisors & VM List");
+                            ui.end_row();
+                            ui.label(RichText::new("Ctrl+MouseWheel").strong());
+                            ui.label("Zoom In / Out");
+                            ui.end_row();
+                            ui.label(RichText::new("Ctrl+1").strong());
+                            ui.label("Reset Zoom (100%)");
+                            ui.end_row();
+                            ui.label(RichText::new("Ctrl+Q").strong());
+                            ui.label("Quit Application");
+                            ui.end_row();
+                        });
+                });
+            self.show_shortcuts = open;
+        }
+
+        // Licenses & Notices modal
+        if self.show_licenses {
+            let mut open = self.show_licenses;
+            egui::Window::new("Licenses & Notices")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.label("Dual-licensed under MIT OR Apache-2.0.");
+                    ui.label("Zero-unwrap / zero-panic workspace clippy policy enforced.");
+                    ui.label("Independent community ArtCraft workstation (not affiliated with Storyteller / Storytold).");
+                });
+            self.show_licenses = open;
+        }
+
+        // About modal
+        if self.show_about {
+            let mut open = self.show_about;
+            egui::Window::new("About vmcraft")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.heading("vmcraft v0.1.0");
+                    ui.label("Pure-Rust ArtCraft VM Workstation (L1 Core + L2 CLI/MCP + L3 egui).");
+                    ui.label("Supports VirtualBox 7+, Windows Hyper-V, and WSL2 Firecracker KVM.");
+                });
+            self.show_about = open;
         }
     }
 }
@@ -1675,6 +2122,12 @@ mod tests {
             swarm_kvm_available: None,
             swarm_fc_installed: None,
             swarm_probe_reason: None,
+            help_tab: HelpTab::GetStarted,
+            show_palette: false,
+            palette_query: String::new(),
+            show_shortcuts: false,
+            show_about: false,
+            show_licenses: false,
         };
 
         let sample_json = serde_json::json!({
@@ -1748,6 +2201,12 @@ mod tests {
             swarm_kvm_available: None,
             swarm_fc_installed: None,
             swarm_probe_reason: None,
+            help_tab: HelpTab::GetStarted,
+            show_palette: false,
+            palette_query: String::new(),
+            show_shortcuts: false,
+            show_about: false,
+            show_licenses: false,
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -1774,5 +2233,113 @@ mod tests {
         assert_eq!(app.swarm_instances.len(), 1);
         assert_eq!(app.swarm_instances[0].pid, "4242");
         assert_eq!(app.pending_tasks, 0);
+    }
+
+    #[test]
+    fn help_tabs_have_distinct_labels() {
+        let tabs = [
+            HelpTab::GetStarted,
+            HelpTab::Functions,
+            HelpTab::Usage,
+            HelpTab::Tips,
+            HelpTab::Safety,
+            HelpTab::Planned,
+            HelpTab::OtherCrafts,
+        ];
+        for (i, t1) in tabs.iter().enumerate() {
+            for (j, t2) in tabs.iter().enumerate() {
+                if i != j {
+                    assert_ne!(t1.label(), t2.label());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn filter_palette_commands_matches_and_lists_all() {
+        let all = filter_palette_commands("");
+        assert!(all.len() >= 30);
+
+        let fc = filter_palette_commands("firecracker");
+        assert!(!fc.is_empty());
+        assert!(fc.iter().all(|(id, label, desc)| {
+            id.to_lowercase().contains("firecracker")
+                || label.to_lowercase().contains("firecracker")
+                || desc.to_lowercase().contains("firecracker")
+        }));
+    }
+
+    #[test]
+    fn airgap_messages_toggle_state() {
+        let (tx, rx) = mpsc::channel();
+        let mut app = VmApp {
+            rt: None,
+            rt_error: None,
+            tx: tx.clone(),
+            rx,
+            pending_tasks: 2,
+            page: Page::Dashboard,
+            status: String::new(),
+            host_info: None,
+            vms: Vec::new(),
+            snapshots: Vec::new(),
+            shot_image: None,
+            shot_texture: None,
+            bus_cmd: "vm.list".to_string(),
+            bus_params: "{}".to_string(),
+            vm_output: String::new(),
+            vm_name: String::new(),
+            ostype: "Ubuntu_64".to_string(),
+            memory_mb: "4096".to_string(),
+            snap_name: String::new(),
+            net_ip: "192.168.56.1".to_string(),
+            netmask: "255.255.255.0".to_string(),
+            net_name: String::new(),
+            disk_path: String::new(),
+            disk_gb: "20".to_string(),
+            shot_out: String::new(),
+            sandbox_code: String::new(),
+            sandbox_output: String::new(),
+            mutate_confirm: false,
+            dark_mode: true,
+            airgap_active: false,
+            disasm_code: String::new(),
+            detonate_keygen: String::new(),
+            detonate_target: String::new(),
+            detonate_disasm_exe: "ida64.exe".to_string(),
+            detonate_user: String::new(),
+            detonate_pass: String::new(),
+            detonate_guest_out: "C:\\detonate\\out.asm".to_string(),
+            detonate_host_out: "out.asm".to_string(),
+            detonate_airgap: true,
+            swarm_instances: Vec::new(),
+            swarm_selected_idx: None,
+            swarm_spawn_id: "microvm-1".to_string(),
+            swarm_kernel: "/vmlinux".to_string(),
+            swarm_rootfs: "/rootfs.ext4".to_string(),
+            swarm_kvm_available: None,
+            swarm_fc_installed: None,
+            swarm_probe_reason: None,
+            help_tab: HelpTab::GetStarted,
+            show_palette: false,
+            palette_query: String::new(),
+            show_shortcuts: false,
+            show_about: false,
+            show_licenses: false,
+        };
+
+        let _ = tx.send(AppMessage::CommandResult {
+            title: "Airgap Sever".to_string(),
+            value: serde_json::json!({"status": "ok"}),
+        });
+        app.drain();
+        assert!(app.airgap_active);
+
+        let _ = tx.send(AppMessage::CommandResult {
+            title: "Airgap Reconnect".to_string(),
+            value: serde_json::json!({"status": "ok"}),
+        });
+        app.drain();
+        assert!(!app.airgap_active);
     }
 }

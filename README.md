@@ -7,7 +7,7 @@
 
 Pure-Rust ArtCraft Virtual Machine workstation for local virtualization management and agentic tooling. One unified Rust workspace providing an in-process core domain library (L1), a dual-mode human CLI and JSON-RPC Model Context Protocol (MCP) server (L2), and an interactive native egui desktop workstation (L3).
 
-Status: **v0.1.0 (pre-1.0, T1; 33 workspace tests)** - L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs (via WSL2), ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation.
+Status: **v0.1.0 (pre-1.0, T2 test floor met; 51 workspace tests)** - L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs (via WSL2), ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation.
 
 - Changes: [CHANGELOG.md](CHANGELOG.md)
 - Conversion Dossier: [docs/CONVERSION_DOSSIER.md](docs/CONVERSION_DOSSIER.md)
@@ -176,7 +176,7 @@ vmcraft-mcp firecracker spawn --id "agent-worker-1" --kernel "/vmlinux" --rootfs
 ## Verification & Testing
 
 ```powershell
-# Run full workspace test suite (33 tests)
+# Run full workspace test suite (51 tests)
 cargo test --workspace
 
 # Lint with strict zero-warning policy

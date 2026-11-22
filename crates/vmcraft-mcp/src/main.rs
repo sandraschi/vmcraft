@@ -1218,4 +1218,55 @@ mod tests {
         let detonate = call_tool("vmcraft.pipeline_detonate", &json!({"vm": "test-vm"})).await;
         assert!(detonate.get("tool").is_some());
     }
+
+    #[tokio::test]
+    async fn firecracker_tools_route_and_gate() {
+        let probe = call_tool("vmcraft.firecracker_probe", &json!({})).await;
+        assert!(probe.get("tool").is_some());
+
+        let list = call_tool("vmcraft.firecracker_list", &json!({})).await;
+        assert!(list.get("tool").is_some());
+
+        let spawn = call_tool("vmcraft.firecracker_spawn", &json!({"vm_id": "m1"})).await;
+        if !vmcraft_core::vm::mutate_allowed() {
+            assert_eq!(spawn.get("status"), Some(&json!("error")));
+        }
+    }
+
+    #[tokio::test]
+    async fn pipeline_naked_install_tool_gates_and_validates() {
+        let no_confirm = call_tool(
+            "vmcraft.pipeline_naked_install",
+            &json!({"repo": "sandraschi/vmcraft", "user": "user"}),
+        )
+        .await;
+        if !vmcraft_core::vm::mutate_allowed() {
+            assert_eq!(no_confirm.get("status"), Some(&json!("error")));
+        }
+
+        let no_user = call_tool(
+            "vmcraft.pipeline_naked_install",
+            &json!({"repo": "sandraschi/vmcraft", "confirm": true}),
+        )
+        .await;
+        assert_eq!(no_user.get("status"), Some(&json!("down")));
+    }
+
+    #[tokio::test]
+    async fn network_and_disk_tools_route() {
+        let net = call_tool("vmcraft.network_list", &json!({})).await;
+        assert!(net.get("tool").is_some());
+
+        let disk = call_tool("vmcraft.disk_list", &json!({})).await;
+        assert!(disk.get("tool").is_some());
+    }
+
+    #[tokio::test]
+    async fn host_info_and_describe_unknown_behave() {
+        let host = call_tool("vmcraft_host_info", &json!({})).await;
+        assert!(host.get("tool").is_some());
+
+        let desc = call_tool("vmcraft.describe", &json!({"cmd": "does.not.exist"})).await;
+        assert_eq!(desc.get("status"), Some(&json!("error")));
+    }
 }
