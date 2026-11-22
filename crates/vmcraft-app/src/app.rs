@@ -981,7 +981,7 @@ impl eframe::App for VmApp {
         }
 
         if self.status_bar_pos == StatusBarPos::Bottom {
-            egui::Panel::bottom("vmcraft_status_bar").show_inside(ui, |ui| {
+            egui::Panel::bottom("vmcraft_status_bar").show(ui, |ui| {
                 self.render_status_bar(ui);
             });
         }
