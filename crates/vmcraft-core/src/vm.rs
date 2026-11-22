@@ -710,7 +710,7 @@ pub async fn sandbox_run(lang: &str, code: &str) -> Value {
     } else {
         (
             "powershell.exe",
-            vec!["-NoProfile", "-NonInteractive", "-Command"],
+            vec!["-NoProfile", "-NonInteractive"],
             "run.ps1",
         )
     };
@@ -720,20 +720,39 @@ pub async fn sandbox_run(lang: &str, code: &str) -> Value {
     }
     let fstr = fpath.to_string_lossy().to_string();
     let fut = async {
-        let mut cmd = tokio::process::Command::new(prog);
-        if l == "python" {
-            cmd.arg(&fstr);
+        let out = if l == "python" {
+            let mut last_err = String::from("no python interpreter found");
+            let mut found = None;
+            for cand in ["python", "py", "python3"] {
+                let mut cmd = tokio::process::Command::new(cand);
+                cmd.arg(&fstr);
+                cmd.kill_on_drop(true);
+                match cmd.output().await {
+                    Ok(o) => {
+                        found = Some(o);
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = format!("spawn {cand}: {e}");
+                    }
+                }
+            }
+            match found {
+                Some(o) => o,
+                None => return Err(last_err),
+            }
         } else {
+            let mut cmd = tokio::process::Command::new(prog);
             for a in args {
                 cmd.arg(a);
             }
+            cmd.arg("-File");
             cmd.arg(&fstr);
-        }
-        cmd.kill_on_drop(true);
-        let out = cmd
-            .output()
-            .await
-            .map_err(|e| format!("spawn {prog}: {e}"))?;
+            cmd.kill_on_drop(true);
+            cmd.output()
+                .await
+                .map_err(|e| format!("spawn {prog}: {e}"))?
+        };
         let stdout = String::from_utf8_lossy(&out.stdout)
             .chars()
             .take(4000)

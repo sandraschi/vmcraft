@@ -349,6 +349,113 @@ pub struct SnapshotItem {
 }
 
 #[derive(Clone, Debug)]
+pub struct NetworkItem {
+    pub name: String,
+    pub ip: String,
+    pub mask: String,
+    pub status: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct DiskItem {
+    pub uuid: String,
+    pub state: String,
+    pub format: String,
+    pub capacity: String,
+    pub location: String,
+}
+
+fn parse_kv_blocks(raw: &str) -> Vec<std::collections::HashMap<String, String>> {
+    let mut blocks = Vec::new();
+    let mut cur = std::collections::HashMap::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            if !cur.is_empty() {
+                blocks.push(cur);
+                cur = std::collections::HashMap::new();
+            }
+            continue;
+        }
+        if let Some((k, v)) = trimmed.split_once(':') {
+            cur.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
+    if !cur.is_empty() {
+        blocks.push(cur);
+    }
+    blocks
+}
+
+fn parse_network_blocks(raw: &str) -> Vec<NetworkItem> {
+    parse_kv_blocks(raw)
+        .into_iter()
+        .filter_map(|m| {
+            let name = m.get("Name")?.clone();
+            Some(NetworkItem {
+                name,
+                ip: m.get("IPAddress").cloned().unwrap_or_default(),
+                mask: m.get("NetworkMask").cloned().unwrap_or_default(),
+                status: m.get("Status").cloned().unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+fn parse_disk_blocks(raw: &str) -> Vec<DiskItem> {
+    parse_kv_blocks(raw)
+        .into_iter()
+        .filter_map(|m| {
+            let uuid = m.get("UUID")?.clone();
+            Some(DiskItem {
+                uuid,
+                state: m.get("State").cloned().unwrap_or_default(),
+                format: m.get("Storage format").cloned().unwrap_or_default(),
+                capacity: m.get("Capacity").cloned().unwrap_or_default(),
+                location: m.get("Location").cloned().unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+fn format_sandbox_output(val: &serde_json::Value) -> String {
+    let status = val
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    if let Some(reason) = val.get("reason").and_then(|v| v.as_str()) {
+        return format!("Status: {status}\nError: {reason}");
+    }
+    let exit = val.get("exit").and_then(|v| v.as_i64()).unwrap_or(-1);
+    let stdout = val.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+    let stderr = val.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
+    let mut out = format!("Status: {status} (exit {exit})");
+    if !stdout.trim().is_empty() {
+        out.push_str("\n\n--- stdout ---\n");
+        out.push_str(stdout.trim_end());
+    }
+    if !stderr.trim().is_empty() {
+        out.push_str("\n\n--- stderr ---\n");
+        out.push_str(stderr.trim_end());
+    }
+    out
+}
+
+fn format_action_summary(title: &str, val: &serde_json::Value) -> String {
+    let status = val
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    if let Some(reason) = val.get("reason").and_then(|v| v.as_str()) {
+        return format!("{title}: {status} - {reason}");
+    }
+    if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
+        return format!("{title}: {status} ({path})");
+    }
+    format!("{title}: {status}")
+}
+
+#[derive(Clone, Debug)]
 pub struct FirecrackerInstance {
     pub pid: String,
     pub binary: String,
@@ -421,6 +528,10 @@ pub struct VmApp {
     show_tab_bar: bool,
     status_bar_pos: StatusBarPos,
     vm_info_fields: Vec<(String, String)>,
+    networks: Vec<NetworkItem>,
+    disks: Vec<DiskItem>,
+    sandbox_lang: String,
+    last_action_summary: String,
 }
 
 impl VmApp {
@@ -496,6 +607,10 @@ impl VmApp {
             show_tab_bar: true,
             status_bar_pos: StatusBarPos::Bottom,
             vm_info_fields: Vec::new(),
+            networks: Vec::new(),
+            disks: Vec::new(),
+            sandbox_lang: "python".to_string(),
+            last_action_summary: String::new(),
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -699,6 +814,14 @@ impl VmApp {
                         self.airgap_active = false;
                     } else if title == "VM Info" {
                         self.vm_info_fields = parse_vm_info_fields(&value);
+                    } else if title == "Network List" {
+                        let raw = value.get("raw").and_then(|v| v.as_str()).unwrap_or("");
+                        self.networks = parse_network_blocks(raw);
+                    } else if title == "Disk List" {
+                        let raw = value.get("raw").and_then(|v| v.as_str()).unwrap_or("");
+                        self.disks = parse_disk_blocks(raw);
+                    } else if title == "Sandbox Run" {
+                        self.sandbox_output = format_sandbox_output(&value);
                     } else if title == "Firecracker Probe" {
                         if value.get("status").and_then(|v| v.as_str()) == Some("ok") {
                             self.swarm_kvm_available =
@@ -740,6 +863,7 @@ impl VmApp {
                             }
                         }
                     }
+                    self.last_action_summary = format_action_summary(&title, &value);
                     let formatted =
                         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
                     self.vm_output = format!("=== {title} ===\n{formatted}");
@@ -1553,14 +1677,51 @@ impl eframe::App for VmApp {
                     }
                 });
                 ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.vm_output)
-                            .desired_rows(14)
-                            .desired_width(f32::INFINITY)
-                            .font(egui::TextStyle::Monospace),
-                    );
-                });
+                if !self.last_action_summary.is_empty() {
+                    ui.label(RichText::new(&self.last_action_summary).strong());
+                }
+                if self.networks.is_empty() {
+                    ui.label("No host-only networks reported. Click 'List Networks' to query VirtualBox.");
+                } else {
+                    let mut picked_net: Option<String> = None;
+                    egui::Grid::new("network_list_grid")
+                        .striped(true)
+                        .spacing([12.0, 6.0])
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("Name").strong());
+                            ui.label(RichText::new("IP").strong());
+                            ui.label(RichText::new("Mask").strong());
+                            ui.label(RichText::new("Status").strong());
+                            ui.label(RichText::new("Action").strong());
+                            ui.end_row();
+                            for n in &self.networks {
+                                ui.label(&n.name);
+                                ui.label(&n.ip);
+                                ui.label(&n.mask);
+                                ui.label(&n.status);
+                                if ui.button("Select").clicked() {
+                                    picked_net = Some(n.name.clone());
+                                }
+                                ui.end_row();
+                            }
+                        });
+                    if let Some(name) = picked_net {
+                        self.net_name = name;
+                    }
+                }
+                ui.separator();
+                egui::CollapsingHeader::new("Raw Command Output (JSON)")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.vm_output)
+                                    .desired_rows(8)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                    });
             }
             Page::Disks => {
                 ui.heading("Disk Management");
@@ -1587,14 +1748,51 @@ impl eframe::App for VmApp {
                     }
                 });
                 ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.vm_output)
-                            .desired_rows(14)
-                            .desired_width(f32::INFINITY)
-                            .font(egui::TextStyle::Monospace),
+                if !self.last_action_summary.is_empty() {
+                    ui.label(RichText::new(&self.last_action_summary).strong());
+                }
+                if self.disks.is_empty() {
+                    ui.label(
+                        "No virtual disks listed yet. Click 'List Hard Disks' to query VirtualBox.",
                     );
-                });
+                } else {
+                    egui::ScrollArea::vertical()
+                        .max_height(260.0)
+                        .show(ui, |ui| {
+                            egui::Grid::new("disk_list_grid")
+                                .striped(true)
+                                .spacing([12.0, 6.0])
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new("State").strong());
+                                    ui.label(RichText::new("Format").strong());
+                                    ui.label(RichText::new("Capacity").strong());
+                                    ui.label(RichText::new("Location").strong());
+                                    ui.label(RichText::new("UUID").strong());
+                                    ui.end_row();
+                                    for d in &self.disks {
+                                        ui.label(&d.state);
+                                        ui.label(&d.format);
+                                        ui.label(&d.capacity);
+                                        ui.label(&d.location);
+                                        ui.label(RichText::new(&d.uuid).weak());
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                }
+                ui.separator();
+                egui::CollapsingHeader::new("Raw Command Output (JSON)")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.vm_output)
+                                    .desired_rows(8)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                    });
             }
             Page::Shot => {
                 ui.heading("VM Screenshot Capture");
@@ -1642,14 +1840,21 @@ impl eframe::App for VmApp {
                     }
                     ui.separator();
                 }
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.vm_output)
-                            .desired_rows(8)
-                            .desired_width(f32::INFINITY)
-                            .font(egui::TextStyle::Monospace),
-                    );
-                });
+                if !self.last_action_summary.is_empty() {
+                    ui.label(RichText::new(&self.last_action_summary).strong());
+                }
+                egui::CollapsingHeader::new("Raw Command Output (JSON)")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.vm_output)
+                                    .desired_rows(8)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                    });
             }
             Page::Detonate => {
                 ui.heading("Air-Gapped Clean-Room Detonation & Triage");
@@ -1916,19 +2121,46 @@ impl eframe::App for VmApp {
                 }
 
                 ui.separator();
-                ui.label(RichText::new("Telemetry & Swarm Audit Output:").strong());
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.vm_output)
-                            .desired_rows(6)
-                            .desired_width(f32::INFINITY)
-                            .font(egui::TextStyle::Monospace),
-                    );
-                });
+                if !self.last_action_summary.is_empty() {
+                    ui.label(RichText::new(&self.last_action_summary).strong());
+                }
+                egui::CollapsingHeader::new("Raw Telemetry Output (JSON)")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.vm_output)
+                                    .desired_rows(6)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                    });
             }
             Page::Sandbox => {
                 ui.heading("Ephemeral Sandbox Execution");
                 ui.label("Executes Python or PowerShell in an isolated 30s timeout sandbox.");
+                ui.horizontal(|ui| {
+                    ui.label("Language:");
+                    if ui
+                        .selectable_label(self.sandbox_lang == "python", "Python")
+                        .clicked()
+                    {
+                        self.sandbox_lang = "python".to_string();
+                        if self.sandbox_code.trim() == "Write-Output 'hi-vm'" {
+                            self.sandbox_code = "print('hi-vm')".to_string();
+                        }
+                    }
+                    if ui
+                        .selectable_label(self.sandbox_lang == "powershell", "PowerShell")
+                        .clicked()
+                    {
+                        self.sandbox_lang = "powershell".to_string();
+                        if self.sandbox_code.trim() == "print('hi-vm')" {
+                            self.sandbox_code = "Write-Output 'hi-vm'".to_string();
+                        }
+                    }
+                });
                 ui.add(
                     egui::TextEdit::multiline(&mut self.sandbox_code)
                         .desired_rows(6)
@@ -1937,13 +2169,8 @@ impl eframe::App for VmApp {
                 );
                 if ui.button("▶ Run Sandbox").clicked() {
                     let code = self.sandbox_code.clone();
-                    self.spawn_command(
-                        "Sandbox Run",
-                        Command::SandboxRun {
-                            lang: "python".to_string(),
-                            code,
-                        },
-                    );
+                    let lang = self.sandbox_lang.clone();
+                    self.spawn_command("Sandbox Run", Command::SandboxRun { lang, code });
                 }
                 ui.separator();
                 ui.label(RichText::new("Sandbox Output:").strong());
@@ -2347,6 +2574,10 @@ mod tests {
             show_tab_bar: true,
             status_bar_pos: StatusBarPos::Bottom,
             vm_info_fields: Vec::new(),
+            networks: Vec::new(),
+            disks: Vec::new(),
+            sandbox_lang: "python".to_string(),
+            last_action_summary: String::new(),
         };
 
         let sample_json = serde_json::json!({
@@ -2429,6 +2660,10 @@ mod tests {
             show_tab_bar: true,
             status_bar_pos: StatusBarPos::Bottom,
             vm_info_fields: Vec::new(),
+            networks: Vec::new(),
+            disks: Vec::new(),
+            sandbox_lang: "python".to_string(),
+            last_action_summary: String::new(),
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -2551,6 +2786,10 @@ mod tests {
             show_tab_bar: true,
             status_bar_pos: StatusBarPos::Bottom,
             vm_info_fields: Vec::new(),
+            networks: Vec::new(),
+            disks: Vec::new(),
+            sandbox_lang: "python".to_string(),
+            last_action_summary: String::new(),
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -2584,5 +2823,29 @@ mod tests {
         assert!(fields.iter().any(|(k, v)| k == "Memory" && v == "8192 MB"));
         assert!(fields.iter().any(|(k, v)| k == "CPUs" && v == "4"));
         assert!(fields.iter().any(|(k, v)| k == "State" && v == "poweroff"));
+    }
+
+    #[test]
+    fn parse_network_and_disk_blocks_work() {
+        let nets = parse_network_blocks(
+            "Name: VirtualBox Host-Only Ethernet Adapter\nIPAddress: 192.168.56.1\nNetworkMask: 255.255.255.0\nStatus: Up\n",
+        );
+        assert_eq!(nets.len(), 1);
+        assert_eq!(nets[0].ip, "192.168.56.1");
+
+        let disks = parse_disk_blocks(
+            "UUID: abc-123\nState: created\nStorage format: VDI\nCapacity: 40960 MBytes\nLocation: C:\\vms\\u.vdi\n",
+        );
+        assert_eq!(disks.len(), 1);
+        assert_eq!(disks[0].format, "VDI");
+        assert_eq!(disks[0].capacity, "40960 MBytes");
+    }
+
+    #[test]
+    fn format_sandbox_output_is_human_readable() {
+        let ok = serde_json::json!({"status": "ok", "exit": 0, "stdout": "hi-vm\n", "stderr": ""});
+        let s = format_sandbox_output(&ok);
+        assert!(s.contains("Status: ok (exit 0)"));
+        assert!(s.contains("hi-vm"));
     }
 }
