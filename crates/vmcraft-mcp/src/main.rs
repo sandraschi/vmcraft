@@ -1,4 +1,4 @@
-//! vmcraft-mcp: CLI-first binary + MCP 2024-11-05 stdio server.
+//! vmcraft-mcp: CLI-first binary + MCP 2026-07-28 stdio server.
 //! stdout = pure JSON-RPC. Logs on stderr only.
 
 use clap::{Parser, Subcommand};
@@ -799,7 +799,7 @@ async fn run_mcp_stdio() -> Result<(), String> {
             .to_string();
         let resp = match method.as_str() {
             "initialize" => {
-                json!({"jsonrpc": "2.0", "id": id, "result": {"protocolVersion": "2024-11-05", "serverInfo": {"name": "vmcraft-mcp", "version": "0.2.0"}}})
+                json!({"jsonrpc": "2.0", "id": id, "result": {"protocolVersion": "2026-07-28", "serverInfo": {"name": "vmcraft-mcp", "version": "0.2.0"}}})
             }
             "tools/list" => json!({"jsonrpc": "2.0", "id": id, "result": tools_list()}),
             "tools/call" => {
