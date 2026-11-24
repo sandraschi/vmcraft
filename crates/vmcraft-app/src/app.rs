@@ -8,15 +8,115 @@ const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(56, 189, 248);
 const ACCENT_AMBER: egui::Color32 = egui::Color32::from_rgb(251, 146, 60);
 const ACCENT_EMERALD: egui::Color32 = egui::Color32::from_rgb(52, 211, 153);
 
-/// Cyberpunk / Slate-950 high-contrast dark visuals.
+#[derive(Clone, Copy)]
+struct Palette {
+    card_bg: egui::Color32,
+    card_border: egui::Color32,
+    text_primary: egui::Color32,
+    text_muted: egui::Color32,
+    accent: egui::Color32,
+    ok_bg: egui::Color32,
+    ok_fg: egui::Color32,
+    warn_bg: egui::Color32,
+    warn_fg: egui::Color32,
+    muted_pill_bg: egui::Color32,
+    muted_pill_fg: egui::Color32,
+    info_bg: egui::Color32,
+    info_fg: egui::Color32,
+    tab_active_bg: egui::Color32,
+}
+
+impl Palette {
+    fn for_mode(dark: bool) -> Self {
+        if dark {
+            Self {
+                card_bg: egui::Color32::from_rgb(17, 24, 39),
+                card_border: egui::Color32::from_rgb(30, 41, 59),
+                text_primary: egui::Color32::from_rgb(241, 245, 249),
+                text_muted: egui::Color32::from_rgb(148, 163, 184),
+                accent: ACCENT_CYAN,
+                ok_bg: egui::Color32::from_rgb(6, 78, 59),
+                ok_fg: ACCENT_EMERALD,
+                warn_bg: egui::Color32::from_rgb(67, 20, 7),
+                warn_fg: ACCENT_AMBER,
+                muted_pill_bg: egui::Color32::from_rgb(30, 41, 59),
+                muted_pill_fg: egui::Color32::from_rgb(148, 163, 184),
+                info_bg: egui::Color32::from_rgb(8, 51, 68),
+                info_fg: ACCENT_CYAN,
+                tab_active_bg: egui::Color32::from_rgb(12, 74, 110),
+            }
+        } else {
+            Self {
+                card_bg: egui::Color32::WHITE,
+                card_border: egui::Color32::from_rgb(203, 213, 225),
+                text_primary: egui::Color32::from_rgb(15, 23, 42),
+                text_muted: egui::Color32::from_rgb(71, 85, 105),
+                accent: egui::Color32::from_rgb(3, 105, 161),
+                ok_bg: egui::Color32::from_rgb(209, 250, 229),
+                ok_fg: egui::Color32::from_rgb(4, 120, 87),
+                warn_bg: egui::Color32::from_rgb(254, 243, 199),
+                warn_fg: egui::Color32::from_rgb(180, 83, 9),
+                muted_pill_bg: egui::Color32::from_rgb(226, 232, 240),
+                muted_pill_fg: egui::Color32::from_rgb(51, 65, 85),
+                info_bg: egui::Color32::from_rgb(224, 242, 254),
+                info_fg: egui::Color32::from_rgb(3, 105, 161),
+                tab_active_bg: egui::Color32::from_rgb(224, 242, 254),
+            }
+        }
+    }
+}
+
+fn card_frame(pal: Palette) -> egui::Frame {
+    egui::Frame::NONE
+        .fill(pal.card_bg)
+        .stroke(egui::Stroke::new(1.0, pal.card_border))
+        .corner_radius(egui::CornerRadius::same(8))
+        .inner_margin(egui::Margin::same(12))
+}
+
+fn render_kpi_card(
+    ui: &mut egui::Ui,
+    pal: Palette,
+    label: &str,
+    value: &str,
+    value_color: egui::Color32,
+    sub: &str,
+) {
+    card_frame(pal).show(ui, |ui| {
+        ui.set_min_width(150.0);
+        ui.label(RichText::new(label).small().color(pal.text_muted));
+        ui.add_space(2.0);
+        ui.label(RichText::new(value).size(20.0).strong().color(value_color));
+        ui.add_space(2.0);
+        ui.label(RichText::new(sub).small().color(pal.text_muted));
+    });
+}
+
+fn render_state_pill(ui: &mut egui::Ui, pal: Palette, state: &str) {
+    if state.eq_ignore_ascii_case("running") {
+        render_badge(ui, "RUNNING", pal.ok_bg, pal.ok_fg);
+    } else {
+        render_badge(ui, "STOPPED", pal.muted_pill_bg, pal.muted_pill_fg);
+    }
+}
+
+fn render_provider_pill(ui: &mut egui::Ui, pal: Palette, provider: &str) {
+    if provider == "hyperv" {
+        render_badge(ui, "Hyper-V", pal.info_bg, pal.info_fg);
+    } else {
+        render_badge(ui, "VirtualBox", pal.warn_bg, pal.warn_fg);
+    }
+}
+
+/// Deep Slate-950 workstation dark visuals.
 fn harsh_visuals() -> egui::Visuals {
     let mut visuals = egui::Visuals::dark();
     visuals.override_text_color = Some(egui::Color32::from_rgb(241, 245, 249));
-    visuals.window_fill = egui::Color32::from_rgb(15, 23, 42); // slate-900
-    visuals.panel_fill = egui::Color32::from_rgb(15, 23, 42);
-    visuals.extreme_bg_color = egui::Color32::from_rgb(2, 6, 23); // slate-950
-    visuals.code_bg_color = egui::Color32::from_rgb(30, 41, 59); // slate-800
-    visuals.faint_bg_color = egui::Color32::from_rgb(30, 41, 59);
+    visuals.window_fill = egui::Color32::from_rgb(11, 17, 32);
+    visuals.panel_fill = egui::Color32::from_rgb(11, 17, 32);
+    visuals.extreme_bg_color = egui::Color32::from_rgb(2, 6, 23);
+    visuals.code_bg_color = egui::Color32::from_rgb(17, 24, 39);
+    visuals.faint_bg_color = egui::Color32::from_rgb(23, 33, 52);
     visuals.warn_fg_color = egui::Color32::from_rgb(251, 191, 36);
     visuals.error_fg_color = egui::Color32::from_rgb(248, 113, 113);
 
@@ -47,28 +147,32 @@ fn harsh_visuals() -> egui::Visuals {
     visuals
 }
 
-/// Crisp light visuals (slate-50 panel with clean border hairline).
+/// Crisp light visuals (soft cool-slate canvas with pure white elevated cards).
 fn crisp_light_visuals() -> egui::Visuals {
     let mut visuals = egui::Visuals::light();
-    visuals.override_text_color = Some(egui::Color32::BLACK);
-    visuals.weak_text_color = Some(egui::Color32::BLACK);
-    visuals.window_fill = egui::Color32::WHITE;
-    visuals.panel_fill = egui::Color32::WHITE;
+    let ink = egui::Color32::from_rgb(15, 23, 42);
+    visuals.override_text_color = Some(ink);
+    visuals.weak_text_color = Some(egui::Color32::from_rgb(71, 85, 105));
+    visuals.window_fill = egui::Color32::from_rgb(248, 250, 252);
+    visuals.panel_fill = egui::Color32::from_rgb(248, 250, 252);
     visuals.extreme_bg_color = egui::Color32::WHITE;
-    visuals.faint_bg_color = egui::Color32::WHITE;
-    visuals.code_bg_color = egui::Color32::WHITE;
-    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::BLACK);
-    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::BLACK);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, egui::Color32::BLACK);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::BLACK);
+    visuals.faint_bg_color = egui::Color32::from_rgb(241, 245, 249);
+    visuals.code_bg_color = egui::Color32::from_rgb(241, 245, 249);
+    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ink);
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ink);
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, ink);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, ink);
     visuals.widgets.noninteractive.bg_stroke =
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(226, 232, 240));
-    visuals.widgets.inactive.bg_stroke =
         egui::Stroke::new(1.0, egui::Color32::from_rgb(203, 213, 225));
+    visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(148, 163, 184));
     visuals.widgets.hovered.bg_stroke =
-        egui::Stroke::new(1.5, egui::Color32::from_rgb(2, 132, 199));
+        egui::Stroke::new(1.5, egui::Color32::from_rgb(3, 105, 161));
     visuals.window_corner_radius = egui::CornerRadius::same(8);
     visuals.menu_corner_radius = egui::CornerRadius::same(6);
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+    visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
     visuals
 }
 
@@ -334,11 +438,20 @@ impl Page {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VmFilterMode {
+    All,
+    Running,
+    VirtualBox,
+    HyperV,
+}
+
 #[derive(Clone, Debug)]
 pub struct VmItem {
     pub name: String,
     pub uuid: String,
     pub provider: String,
+    pub state: String,
 }
 
 #[derive(Clone, Debug)]
@@ -532,6 +645,16 @@ pub struct VmApp {
     disks: Vec<DiskItem>,
     sandbox_lang: String,
     last_action_summary: String,
+    vm_filter: String,
+    vm_filter_mode: VmFilterMode,
+    activity_log: Vec<(String, bool)>,
+    guest_user: String,
+    guest_pass: String,
+    guest_cmd: String,
+    guest_output: String,
+    naked_repo: String,
+    naked_snapshot: String,
+    naked_linux: bool,
 }
 
 impl VmApp {
@@ -611,6 +734,16 @@ impl VmApp {
             disks: Vec::new(),
             sandbox_lang: "python".to_string(),
             last_action_summary: String::new(),
+            vm_filter: String::new(),
+            vm_filter_mode: VmFilterMode::All,
+            activity_log: Vec::new(),
+            guest_user: "user".to_string(),
+            guest_pass: "user".to_string(),
+            guest_cmd: "uname -a; lsb_release -ds 2>/dev/null || true".to_string(),
+            guest_output: String::new(),
+            naked_repo: "sandraschi/vmcraft".to_string(),
+            naked_snapshot: "clean-desktop-2026-11-22".to_string(),
+            naked_linux: true,
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -717,11 +850,17 @@ impl VmApp {
                                 .and_then(|p| p.as_str())
                                 .unwrap_or("virtualbox")
                                 .to_string();
+                            let state = item
+                                .get("state")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("off")
+                                .to_string();
                             if !name.is_empty() {
                                 self.vms.push(VmItem {
                                     name,
                                     uuid,
                                     provider,
+                                    state,
                                 });
                             }
                         }
@@ -822,6 +961,29 @@ impl VmApp {
                         self.disks = parse_disk_blocks(raw);
                     } else if title == "Sandbox Run" {
                         self.sandbox_output = format_sandbox_output(&value);
+                    } else if title == "Guest Exec" || title == "Naked Test" {
+                        let status = value
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let mut lines = vec![format!("{title}: {status}")];
+                        if let Some(steps) = value.get("steps").and_then(|v| v.as_array()) {
+                            for step in steps {
+                                if let Some(s) = step.as_str() {
+                                    lines.push(format!("  - {s}"));
+                                }
+                            }
+                        }
+                        if let Some(out) = value.get("output").and_then(|v| v.as_str()) {
+                            if !out.trim().is_empty() {
+                                lines.push(String::new());
+                                lines.push(out.trim_end().to_string());
+                            }
+                        }
+                        if let Some(reason) = value.get("reason").and_then(|v| v.as_str()) {
+                            lines.push(format!("Error: {reason}"));
+                        }
+                        self.guest_output = lines.join("\n");
                     } else if title == "Firecracker Probe" {
                         if value.get("status").and_then(|v| v.as_str()) == Some("ok") {
                             self.swarm_kvm_available =
@@ -863,7 +1025,19 @@ impl VmApp {
                             }
                         }
                     }
+                    let is_ok = value.get("status").and_then(|v| v.as_str()) == Some("ok");
                     self.last_action_summary = format_action_summary(&title, &value);
+                    self.activity_log
+                        .insert(0, (self.last_action_summary.clone(), is_ok));
+                    self.activity_log.truncate(40);
+                    if is_ok
+                        && matches!(
+                            title.as_str(),
+                            "VM Start" | "VM Stop" | "Hyper-V Start" | "Hyper-V Stop"
+                        )
+                    {
+                        self.spawn_vms();
+                    }
                     let formatted =
                         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
                     self.vm_output = format!("=== {title} ===\n{formatted}");
@@ -874,6 +1048,53 @@ impl VmApp {
 
     fn confirm(&self) -> bool {
         self.mutate_confirm
+    }
+
+    fn filtered_vms(&self) -> Vec<VmItem> {
+        let q = self.vm_filter.trim().to_lowercase();
+        self.vms
+            .iter()
+            .filter(|vm| {
+                let mode_ok = match self.vm_filter_mode {
+                    VmFilterMode::All => true,
+                    VmFilterMode::Running => vm.state.eq_ignore_ascii_case("running"),
+                    VmFilterMode::VirtualBox => vm.provider == "virtualbox",
+                    VmFilterMode::HyperV => vm.provider == "hyperv",
+                };
+                let text_ok = q.is_empty()
+                    || vm.name.to_lowercase().contains(&q)
+                    || vm.uuid.to_lowercase().contains(&q);
+                mode_ok && text_ok
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn render_vm_filter_bar(&mut self, ui: &mut egui::Ui, pal: Palette) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Filter:").color(pal.text_muted));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.vm_filter)
+                    .hint_text("Search VM name or UUID...")
+                    .desired_width(200.0),
+            );
+            for (mode, label) in [
+                (VmFilterMode::All, "All"),
+                (VmFilterMode::Running, "Running"),
+                (VmFilterMode::VirtualBox, "VirtualBox"),
+                (VmFilterMode::HyperV, "Hyper-V"),
+            ] {
+                if ui
+                    .selectable_label(self.vm_filter_mode == mode, label)
+                    .clicked()
+                {
+                    self.vm_filter_mode = mode;
+                }
+            }
+            if !self.vm_filter.is_empty() && ui.button("Clear").clicked() {
+                self.vm_filter.clear();
+            }
+        });
     }
 
     fn render_status_bar(&mut self, ui: &mut egui::Ui) {
@@ -1180,9 +1401,11 @@ impl eframe::App for VmApp {
             });
         }
 
+        let pal = Palette::for_mode(self.dark_mode);
+
         // Page navigation bar (hideable single-click alternative to Window menu)
         if self.show_tab_bar {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for p in [
                     Page::Dashboard,
                     Page::Vms,
@@ -1198,11 +1421,13 @@ impl eframe::App for VmApp {
                 ] {
                     let is_selected = self.page == p;
                     let btn = if is_selected {
-                        ui.button(RichText::new(p.label()).strong().color(ACCENT_CYAN))
+                        egui::Button::new(RichText::new(p.label()).strong().color(pal.accent))
+                            .fill(pal.tab_active_bg)
+                            .stroke(egui::Stroke::new(1.0, pal.accent))
                     } else {
-                        ui.button(p.label())
+                        egui::Button::new(RichText::new(p.label()).color(pal.text_primary))
                     };
-                    if btn.clicked() {
+                    if ui.add(btn).clicked() {
                         self.page = p;
                     }
                 }
@@ -1212,145 +1437,251 @@ impl eframe::App for VmApp {
 
         match self.page {
             Page::Dashboard => {
-                ui.horizontal(|ui| {
-                    ui.heading("VM Overview");
-                    ui.label(format!("({} VMs detected)", self.vms.len()));
-                });
-
-                if self.vms.is_empty() {
-                    if self.pending_tasks > 0 {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label("Loading VMs from hypervisors…");
-                        });
-                    } else {
-                        ui.label("No virtual machines registered. Click '⟳ Refresh' or create a VM in the 'VMs' tab.");
-                    }
+                let total_vms = self.vms.len();
+                let running_vms = self
+                    .vms
+                    .iter()
+                    .filter(|v| v.state.eq_ignore_ascii_case("running"))
+                    .count();
+                let vbox_count = self.vms.iter().filter(|v| v.provider != "hyperv").count();
+                let hv_count = total_vms.saturating_sub(vbox_count);
+                let selected_label = if self.vm_name.is_empty() {
+                    "None".to_string()
                 } else {
-                    let mut action_cmd: Option<(&'static str, Command)> = None;
-                    let mut select_vm: Option<String> = None;
+                    self.vm_name.clone()
+                };
 
-                    egui::ScrollArea::vertical()
-                        .max_height(240.0)
-                        .show(ui, |ui| {
-                            egui::Grid::new("vm_dashboard_grid")
-                                .striped(true)
-                                .spacing([16.0, 8.0])
-                                .show(ui, |ui| {
-                                    ui.label(RichText::new("VM Name").strong());
-                                    ui.label(RichText::new("Provider").strong());
-                                    ui.label(RichText::new("UUID").strong());
-                                    ui.label(RichText::new("Actions").strong());
-                                    ui.end_row();
+                // KPI Summary Cards
+                ui.horizontal_wrapped(|ui| {
+                    render_kpi_card(
+                        ui,
+                        pal,
+                        "TOTAL VMS",
+                        &total_vms.to_string(),
+                        pal.accent,
+                        &format!("{vbox_count} VirtualBox, {hv_count} Hyper-V"),
+                    );
+                    render_kpi_card(
+                        ui,
+                        pal,
+                        "RUNNING NOW",
+                        &running_vms.to_string(),
+                        if running_vms > 0 {
+                            pal.ok_fg
+                        } else {
+                            pal.text_muted
+                        },
+                        if running_vms > 0 {
+                            "Active guest(s)"
+                        } else {
+                            "All guests powered off"
+                        },
+                    );
+                    render_kpi_card(
+                        ui,
+                        pal,
+                        "SELECTED TARGET",
+                        &selected_label,
+                        pal.text_primary,
+                        "Click any VM row to switch",
+                    );
+                    card_frame(pal).show(ui, |ui| {
+                        ui.set_min_width(170.0);
+                        ui.label(RichText::new("QUICK JUMP").small().color(pal.text_muted));
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Snapshots").clicked() {
+                                self.page = Page::Snapshots;
+                            }
+                            if ui.button("Shot").clicked() {
+                                self.page = Page::Shot;
+                            }
+                            if ui.button("Sandbox").clicked() {
+                                self.page = Page::Sandbox;
+                            }
+                        });
+                    });
+                });
+                ui.add_space(6.0);
 
-                                    for vm in &self.vms {
-                                        ui.label(
-                                            RichText::new(&vm.name)
-                                                .color(egui::Color32::from_rgb(220, 230, 245))
-                                                .strong(),
-                                        );
-                                        if vm.provider == "hyperv" {
-                                            render_badge(
-                                                ui,
-                                                "Hyper-V",
-                                                egui::Color32::from_rgb(8, 51, 68),
-                                                ACCENT_CYAN,
-                                            );
-                                        } else {
-                                            render_badge(
-                                                ui,
-                                                "VirtualBox",
-                                                egui::Color32::from_rgb(67, 20, 7),
-                                                ACCENT_AMBER,
-                                            );
-                                        }
-                                        ui.label(RichText::new(&vm.uuid).weak());
-                                        ui.horizontal(|ui| {
-                                            if ui.button("Select").clicked() {
+                // Virtual Machines Card
+                card_frame(pal).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Virtual Machines");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("⟳ Refresh").clicked() {
+                                self.refresh_all();
+                            }
+                        });
+                    });
+                    self.render_vm_filter_bar(ui, pal);
+                    ui.add_space(4.0);
+
+                    let visible = self.filtered_vms();
+                    if self.vms.is_empty() {
+                        if self.pending_tasks > 0 {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("Loading VMs from hypervisors…");
+                            });
+                        } else {
+                            ui.label("No virtual machines registered. Click '⟳ Refresh' or create a VM in the 'VMs' tab.");
+                        }
+                    } else if visible.is_empty() {
+                        ui.label(
+                            RichText::new("No VMs match the current filter.").color(pal.text_muted),
+                        );
+                    } else {
+                        let mut action_cmd: Option<(&'static str, Command)> = None;
+                        let mut select_vm: Option<String> = None;
+
+                        egui::ScrollArea::vertical()
+                            .max_height(240.0)
+                            .show(ui, |ui| {
+                                egui::Grid::new("vm_dashboard_grid")
+                                    .striped(true)
+                                    .spacing([14.0, 8.0])
+                                    .show(ui, |ui| {
+                                        ui.label(RichText::new("VM Name").strong());
+                                        ui.label(RichText::new("State").strong());
+                                        ui.label(RichText::new("Provider").strong());
+                                        ui.label(RichText::new("UUID").strong());
+                                        ui.label(RichText::new("Actions").strong());
+                                        ui.end_row();
+
+                                        for vm in &visible {
+                                            let is_sel = self.vm_name == vm.name;
+                                            let name_text = if is_sel {
+                                                RichText::new(&vm.name).strong().color(pal.accent)
+                                            } else {
+                                                RichText::new(&vm.name)
+                                                    .strong()
+                                                    .color(pal.text_primary)
+                                            };
+                                            if ui.selectable_label(is_sel, name_text).clicked() {
                                                 select_vm = Some(vm.name.clone());
                                             }
-                                            if vm.provider == "hyperv" {
-                                                if ui.button("Start").clicked() {
-                                                    select_vm = Some(vm.name.clone());
-                                                    action_cmd = Some((
-                                                        "Hyper-V Start",
-                                                        Command::HypervStart {
-                                                            vm: vm.name.clone(),
-                                                            confirm: self.confirm(),
-                                                        },
-                                                    ));
+                                            render_state_pill(ui, pal, &vm.state);
+                                            render_provider_pill(ui, pal, &vm.provider);
+                                            ui.label(
+                                                RichText::new(&vm.uuid)
+                                                    .monospace()
+                                                    .small()
+                                                    .color(pal.text_muted),
+                                            );
+                                            ui.horizontal(|ui| {
+                                                if vm.provider == "hyperv" {
+                                                    if ui.button("Start").clicked() {
+                                                        select_vm = Some(vm.name.clone());
+                                                        action_cmd = Some((
+                                                            "Hyper-V Start",
+                                                            Command::HypervStart {
+                                                                vm: vm.name.clone(),
+                                                                confirm: self.confirm(),
+                                                            },
+                                                        ));
+                                                    }
+                                                    if ui.button("Stop").clicked() {
+                                                        select_vm = Some(vm.name.clone());
+                                                        action_cmd = Some((
+                                                            "Hyper-V Stop",
+                                                            Command::HypervStop {
+                                                                vm: vm.name.clone(),
+                                                                force: false,
+                                                                confirm: self.confirm(),
+                                                            },
+                                                        ));
+                                                    }
+                                                } else {
+                                                    if ui.button("Info").clicked() {
+                                                        select_vm = Some(vm.name.clone());
+                                                        self.page = Page::Vms;
+                                                        action_cmd = Some((
+                                                            "VM Info",
+                                                            Command::VmInfo {
+                                                                vm: vm.name.clone(),
+                                                            },
+                                                        ));
+                                                    }
+                                                    if ui.button("Start").clicked() {
+                                                        select_vm = Some(vm.name.clone());
+                                                        action_cmd = Some((
+                                                            "VM Start",
+                                                            Command::VmStart {
+                                                                vm: vm.name.clone(),
+                                                                confirm: self.confirm(),
+                                                            },
+                                                        ));
+                                                    }
+                                                    if ui.button("Stop").clicked() {
+                                                        select_vm = Some(vm.name.clone());
+                                                        action_cmd = Some((
+                                                            "VM Stop",
+                                                            Command::VmStop {
+                                                                vm: vm.name.clone(),
+                                                                force: false,
+                                                                confirm: self.confirm(),
+                                                            },
+                                                        ));
+                                                    }
                                                 }
-                                                if ui.button("Stop").clicked() {
-                                                    select_vm = Some(vm.name.clone());
-                                                    action_cmd = Some((
-                                                        "Hyper-V Stop",
-                                                        Command::HypervStop {
-                                                            vm: vm.name.clone(),
-                                                            force: false,
-                                                            confirm: self.confirm(),
-                                                        },
-                                                    ));
-                                                }
-                                            } else {
-                                                if ui.button("Info").clicked() {
-                                                    select_vm = Some(vm.name.clone());
-                                                    action_cmd = Some((
-                                                        "VM Info",
-                                                        Command::VmInfo {
-                                                            vm: vm.name.clone(),
-                                                        },
-                                                    ));
-                                                }
-                                                if ui.button("Start").clicked() {
-                                                    select_vm = Some(vm.name.clone());
-                                                    action_cmd = Some((
-                                                        "VM Start",
-                                                        Command::VmStart {
-                                                            vm: vm.name.clone(),
-                                                            confirm: self.confirm(),
-                                                        },
-                                                    ));
-                                                }
-                                                if ui.button("Stop").clicked() {
-                                                    select_vm = Some(vm.name.clone());
-                                                    action_cmd = Some((
-                                                        "VM Stop",
-                                                        Command::VmStop {
-                                                            vm: vm.name.clone(),
-                                                            force: false,
-                                                            confirm: self.confirm(),
-                                                        },
-                                                    ));
-                                                }
-                                            }
-                                        });
-                                        ui.end_row();
-                                    }
-                                });
-                        });
+                                            });
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
 
-                    if let Some(target) = select_vm {
-                        self.vm_name = target;
-                    }
-                    if let Some((title, cmd)) = action_cmd {
-                        self.spawn_command(title, cmd);
-                    }
-                }
-
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Activity / Output").strong());
-                    if ui.button("Clear").clicked() {
-                        self.vm_output.clear();
+                        if let Some(target) = select_vm {
+                            self.vm_name = target;
+                        }
+                        if let Some((title, cmd)) = action_cmd {
+                            self.spawn_command(title, cmd);
+                        }
                     }
                 });
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.vm_output)
-                            .desired_rows(12)
-                            .desired_width(f32::INFINITY)
-                            .font(egui::TextStyle::Monospace),
-                    );
+
+                ui.add_space(6.0);
+                // Recent Activity Card (human-readable feed)
+                card_frame(pal).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Recent Activity").strong());
+                        if !self.activity_log.is_empty() && ui.button("Clear").clicked() {
+                            self.activity_log.clear();
+                        }
+                    });
+                    if self.activity_log.is_empty() {
+                        ui.label(
+                            RichText::new("No actions run yet in this session.")
+                                .color(pal.text_muted),
+                        );
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .max_height(130.0)
+                            .show(ui, |ui| {
+                                for (msg, is_ok) in self.activity_log.iter().take(12) {
+                                    ui.horizontal(|ui| {
+                                        let dot = if *is_ok { pal.ok_fg } else { pal.warn_fg };
+                                        ui.label(RichText::new("●").color(dot));
+                                        ui.label(msg);
+                                    });
+                                }
+                            });
+                    }
+                    ui.add_space(4.0);
+                    egui::CollapsingHeader::new("Raw Command Output (JSON)")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .max_height(160.0)
+                                .show(ui, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut self.vm_output)
+                                            .desired_rows(8)
+                                            .desired_width(f32::INFINITY)
+                                            .font(egui::TextStyle::Monospace),
+                                    );
+                                });
+                        });
                 });
             }
             Page::Vms => {
@@ -1434,90 +1765,183 @@ impl eframe::App for VmApp {
 
                 ui.separator();
                 if !self.vms.is_empty() {
-                    ui.label(
-                        RichText::new(format!("Registered VMs ({}):", self.vms.len())).strong(),
-                    );
                     let mut vms_action: Option<(String, Option<(&'static str, Command)>)> = None;
-                    egui::Grid::new("vms_page_table")
-                        .striped(true)
-                        .spacing([12.0, 6.0])
-                        .show(ui, |ui| {
-                            ui.label(RichText::new("Name").strong());
-                            ui.label(RichText::new("Provider").strong());
-                            ui.label(RichText::new("UUID").strong());
-                            ui.label(RichText::new("Actions").strong());
-                            ui.end_row();
-                            for vm in &self.vms {
-                                let selected = self.vm_name == vm.name;
-                                if ui.selectable_label(selected, &vm.name).clicked() {
-                                    vms_action = Some((vm.name.clone(), None));
-                                }
-                                ui.label(&vm.provider);
-                                ui.label(RichText::new(&vm.uuid).weak());
-                                ui.horizontal(|ui| {
-                                    if ui.button("Info").clicked() {
-                                        vms_action = Some((
-                                            vm.name.clone(),
-                                            Some((
-                                                "VM Info",
-                                                Command::VmInfo {
-                                                    vm: vm.name.clone(),
-                                                },
-                                            )),
-                                        ));
-                                    }
-                                    if ui.button("Start").clicked() {
-                                        vms_action = Some((
-                                            vm.name.clone(),
-                                            Some((
-                                                "VM Start",
-                                                Command::VmStart {
-                                                    vm: vm.name.clone(),
-                                                    confirm: self.confirm(),
-                                                },
-                                            )),
-                                        ));
-                                    }
-                                    if ui.button("Stop").clicked() {
-                                        vms_action = Some((
-                                            vm.name.clone(),
-                                            Some((
-                                                "VM Stop",
-                                                Command::VmStop {
-                                                    vm: vm.name.clone(),
-                                                    force: false,
-                                                    confirm: self.confirm(),
-                                                },
-                                            )),
-                                        ));
-                                    }
-                                });
+                    card_frame(pal).show(ui, |ui| {
+                        ui.label(
+                            RichText::new(format!("Registered VMs ({})", self.vms.len())).strong(),
+                        );
+                        ui.add_space(4.0);
+                        egui::Grid::new("vms_page_table")
+                            .striped(true)
+                            .spacing([12.0, 6.0])
+                            .show(ui, |ui| {
+                                ui.label(RichText::new("Name").strong());
+                                ui.label(RichText::new("State").strong());
+                                ui.label(RichText::new("Provider").strong());
+                                ui.label(RichText::new("UUID").strong());
+                                ui.label(RichText::new("Actions").strong());
                                 ui.end_row();
-                            }
-                        });
+                                for vm in &self.vms {
+                                    let selected = self.vm_name == vm.name;
+                                    if ui.selectable_label(selected, &vm.name).clicked() {
+                                        vms_action = Some((vm.name.clone(), None));
+                                    }
+                                    render_state_pill(ui, pal, &vm.state);
+                                    render_provider_pill(ui, pal, &vm.provider);
+                                    ui.label(
+                                        RichText::new(&vm.uuid)
+                                            .monospace()
+                                            .small()
+                                            .color(pal.text_muted),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Info").clicked() {
+                                            vms_action = Some((
+                                                vm.name.clone(),
+                                                Some((
+                                                    "VM Info",
+                                                    Command::VmInfo {
+                                                        vm: vm.name.clone(),
+                                                    },
+                                                )),
+                                            ));
+                                        }
+                                        if ui.button("Start").clicked() {
+                                            vms_action = Some((
+                                                vm.name.clone(),
+                                                Some((
+                                                    "VM Start",
+                                                    Command::VmStart {
+                                                        vm: vm.name.clone(),
+                                                        confirm: self.confirm(),
+                                                    },
+                                                )),
+                                            ));
+                                        }
+                                        if ui.button("Stop").clicked() {
+                                            vms_action = Some((
+                                                vm.name.clone(),
+                                                Some((
+                                                    "VM Stop",
+                                                    Command::VmStop {
+                                                        vm: vm.name.clone(),
+                                                        force: false,
+                                                        confirm: self.confirm(),
+                                                    },
+                                                )),
+                                            ));
+                                        }
+                                    });
+                                    ui.end_row();
+                                }
+                            });
+                    });
                     if let Some((name, cmd_opt)) = vms_action {
                         self.vm_name = name;
                         if let Some((title, cmd)) = cmd_opt {
                             self.spawn_command(title, cmd);
                         }
                     }
-                    ui.separator();
+                    ui.add_space(6.0);
                 }
 
                 if !self.vm_info_fields.is_empty() {
-                    ui.label(RichText::new("Selected VM Details:").strong());
-                    egui::Grid::new("vm_info_details_grid")
-                        .striped(true)
-                        .spacing([16.0, 4.0])
-                        .show(ui, |ui| {
-                            for (k, v) in &self.vm_info_fields {
-                                ui.label(RichText::new(k).strong());
-                                ui.label(v);
-                                ui.end_row();
-                            }
-                        });
-                    ui.separator();
+                    card_frame(pal).show(ui, |ui| {
+                        ui.label(RichText::new("Selected VM Details").strong());
+                        ui.add_space(4.0);
+                        egui::Grid::new("vm_info_details_grid")
+                            .striped(true)
+                            .spacing([16.0, 4.0])
+                            .show(ui, |ui| {
+                                for (k, v) in &self.vm_info_fields {
+                                    ui.label(RichText::new(k).strong().color(pal.text_muted));
+                                    ui.label(RichText::new(v).color(pal.text_primary));
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                    ui.add_space(6.0);
                 }
+
+                // Guest Shell & Clean-Room Linux Craft Test Card
+                card_frame(pal).show(ui, |ui| {
+                    ui.label(RichText::new("Guest Runner & Clean-Room Linux Craft Test").strong());
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("User:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.guest_user).desired_width(90.0),
+                        );
+                        ui.label("Pass:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.guest_pass)
+                                .password(true)
+                                .desired_width(90.0),
+                        );
+                        ui.label("Guest Cmd:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.guest_cmd).desired_width(260.0),
+                        );
+                        if ui.button("▶ Run in Guest").clicked() {
+                            self.spawn_command(
+                                "Guest Exec",
+                                Command::GuestExec {
+                                    vm: self.vm_name.clone(),
+                                    user: self.guest_user.clone(),
+                                    pass: self.guest_pass.clone(),
+                                    exe: "/bin/bash".to_string(),
+                                    args: vec!["-lc".to_string(), self.guest_cmd.clone()],
+                                    timeout_secs: Some(60),
+                                },
+                            );
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Repo:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.naked_repo).desired_width(180.0),
+                        );
+                        ui.label("Snapshot:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.naked_snapshot)
+                                .desired_width(180.0),
+                        );
+                        ui.checkbox(&mut self.naked_linux, "Linux guest");
+                        if ui.button("🧪 Run Naked Test").clicked() {
+                            self.spawn_command(
+                                "Naked Test",
+                                Command::PipelineNakedInstall {
+                                    repo: self.naked_repo.clone(),
+                                    baseline_vm: Some(self.vm_name.clone()),
+                                    user: self.guest_user.clone(),
+                                    pass: self.guest_pass.clone(),
+                                    snapshot: if self.naked_snapshot.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.naked_snapshot.clone())
+                                    },
+                                    command: None,
+                                    linux: self.naked_linux,
+                                    confirm: self.confirm(),
+                                },
+                            );
+                        }
+                    });
+                    if !self.guest_output.is_empty() {
+                        ui.add_space(4.0);
+                        egui::ScrollArea::vertical()
+                            .max_height(120.0)
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut self.guest_output)
+                                        .desired_rows(5)
+                                        .desired_width(f32::INFINITY)
+                                        .font(egui::TextStyle::Monospace),
+                                );
+                            });
+                    }
+                });
+                ui.add_space(4.0);
 
                 egui::CollapsingHeader::new("Raw Command Output (JSON)")
                     .default_open(false)
@@ -1596,8 +2020,7 @@ impl eframe::App for VmApp {
 
                                     for s in &self.snapshots {
                                         ui.label(
-                                            RichText::new(&s.name)
-                                                .color(egui::Color32::from_rgb(220, 230, 245)),
+                                            RichText::new(&s.name).strong().color(pal.text_primary),
                                         );
                                         ui.label(RichText::new(&s.uuid).weak());
                                         ui.label(RichText::new(&s.description).weak());
@@ -2244,11 +2667,7 @@ impl eframe::App for VmApp {
                                             .and_then(|v| v.as_str())
                                             .unwrap_or("");
 
-                                        ui.label(
-                                            RichText::new(id)
-                                                .monospace()
-                                                .color(egui::Color32::from_rgb(180, 210, 255)),
-                                        );
+                                        ui.label(RichText::new(id).monospace().color(pal.accent));
                                         ui.label(label);
                                         ui.label(RichText::new(desc).weak());
 
@@ -2578,6 +2997,16 @@ mod tests {
             disks: Vec::new(),
             sandbox_lang: "python".to_string(),
             last_action_summary: String::new(),
+            vm_filter: String::new(),
+            vm_filter_mode: VmFilterMode::All,
+            activity_log: Vec::new(),
+            guest_user: "user".to_string(),
+            guest_pass: "user".to_string(),
+            guest_cmd: "uname -a; lsb_release -ds 2>/dev/null || true".to_string(),
+            guest_output: String::new(),
+            naked_repo: "sandraschi/vmcraft".to_string(),
+            naked_snapshot: "clean-desktop-2026-11-22".to_string(),
+            naked_linux: true,
         };
 
         let sample_json = serde_json::json!({
@@ -2664,6 +3093,16 @@ mod tests {
             disks: Vec::new(),
             sandbox_lang: "python".to_string(),
             last_action_summary: String::new(),
+            vm_filter: String::new(),
+            vm_filter_mode: VmFilterMode::All,
+            activity_log: Vec::new(),
+            guest_user: "user".to_string(),
+            guest_pass: "user".to_string(),
+            guest_cmd: "uname -a; lsb_release -ds 2>/dev/null || true".to_string(),
+            guest_output: String::new(),
+            naked_repo: "sandraschi/vmcraft".to_string(),
+            naked_snapshot: "clean-desktop-2026-11-22".to_string(),
+            naked_linux: true,
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -2790,6 +3229,16 @@ mod tests {
             disks: Vec::new(),
             sandbox_lang: "python".to_string(),
             last_action_summary: String::new(),
+            vm_filter: String::new(),
+            vm_filter_mode: VmFilterMode::All,
+            activity_log: Vec::new(),
+            guest_user: "user".to_string(),
+            guest_pass: "user".to_string(),
+            guest_cmd: "uname -a; lsb_release -ds 2>/dev/null || true".to_string(),
+            guest_output: String::new(),
+            naked_repo: "sandraschi/vmcraft".to_string(),
+            naked_snapshot: "clean-desktop-2026-11-22".to_string(),
+            naked_linux: true,
         };
 
         let _ = tx.send(AppMessage::CommandResult {

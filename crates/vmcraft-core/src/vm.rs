@@ -253,6 +253,27 @@ pub async fn hyperv_stop(vm: &str, force: bool, confirm: bool) -> Value {
     }
 }
 
+fn parse_vbox_vm_lines(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        // Format: "Name" {uuid}
+        let (name, id) = if let Some(pos) = t.rfind('{') {
+            (
+                t[..pos].trim().trim_matches('"').to_string(),
+                t[pos..].to_string(),
+            )
+        } else {
+            (t.to_string(), String::new())
+        };
+        out.push((name, id));
+    }
+    out
+}
+
 pub async fn vm_list(limit: Option<u32>) -> Value {
     let mut all_vms: Vec<Value> = Vec::new();
     let mut vbox_found = false;
@@ -260,21 +281,31 @@ pub async fn vm_list(limit: Option<u32>) -> Value {
     for cand in vboxmanage_candidates() {
         if let Ok(text) = run_capture(&cand, &["list", "vms"], 15).await {
             vbox_found = true;
-            for line in text.lines() {
-                let t = line.trim();
-                if t.is_empty() {
-                    continue;
-                }
-                // Format: "Name" {uuid}
-                let (name, id) = if let Some(pos) = t.rfind('{') {
-                    (
-                        t[..pos].trim().trim_matches('"').to_string(),
-                        t[pos..].to_string(),
-                    )
-                } else {
-                    (t.to_string(), String::new())
-                };
-                all_vms.push(json!({"name": name, "uuid": id, "provider": "virtualbox"}));
+            let running_text = run_capture(&cand, &["list", "runningvms"], 10)
+                .await
+                .unwrap_or_default();
+            let running_uuids: std::collections::HashSet<String> =
+                parse_vbox_vm_lines(&running_text)
+                    .into_iter()
+                    .map(|(_, id)| id)
+                    .filter(|id| !id.is_empty())
+                    .collect();
+            let running_names: std::collections::HashSet<String> =
+                parse_vbox_vm_lines(&running_text)
+                    .into_iter()
+                    .map(|(name, _)| name)
+                    .collect();
+
+            for (name, id) in parse_vbox_vm_lines(&text) {
+                let is_running = (!id.is_empty() && running_uuids.contains(&id))
+                    || running_names.contains(&name);
+                let state = if is_running { "running" } else { "off" };
+                all_vms.push(json!({
+                    "name": name,
+                    "uuid": id,
+                    "provider": "virtualbox",
+                    "state": state,
+                }));
                 if let Some(lim) = limit {
                     if all_vms.len() >= lim as usize {
                         break;
