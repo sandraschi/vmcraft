@@ -1,9 +1,15 @@
 # HANDOVER -- `vmcraft`
 
-**Last Updated:** 2026-11-10T22:45:00+01:00  
-**Current Phase:** Tier-4 Complete (v1.0.0) -> Clean-Room Detonation Pipeline + Hardware Airgap Isolation + Naked Install Verification + MCP stdio Green
+**Last Updated:** 2026-11-24T18:07:00+01:00  
+**Current Phase:** `v0.1.0` published on GitHub (`origin/master` @ post-v0.1.0 UI & live-state polish), 54 workspace tests passing, GitHub Actions CI green on Windows and Linux.
 
-## What Was Done
+## Recent Updates (2026-11-22 to 2026-11-24)
+- **Release & CI**: Tagged and published `v0.1.0` via `scripts/release.ps1 -Publish`; added `.github/workflows/ci.yml` (`windows-latest` + `ubuntu-latest`).
+- **Core (`vmcraft-core`)**: Wired `pipeline_naked_install` to real VirtualBox snapshot restore + headless start + `guestcontrol` execution + rollback; fixed `sandbox_run` (`python`/`py`/`python3` fallback + `powershell.exe -File`); added live `state` (`running`/`off`) to `vm_list` via `VBoxManage list runningvms`.
+- **Desktop UI (`vmcraft-app`)**: Added standard Craft menu bar (`switch_on_hover`), `View -> Show Tab Bar` (`Ctrl+B`), `View -> Status Bar` (`Bottom`/`Top`/`Off`), `Ctrl+K` Command Palette, `F1` Shortcuts, 7-tab Help Center + `HELP.md`, theme-aware Dark/Light `Palette`, Dashboard KPI cards + VM search/filter + `Recent Activity` feed, human-readable `VMs`/`Network`/`Disks`/`Shot`/`Swarm` views, and in-GUI Guest Runner & Clean-Room Linux Craft Test card.
+- **Linux Test VM**: Reset `ubu-2404-lts` (`user`/`user`) via GRUB recovery, verified `vmcraft-mcp guest exec` end-to-end, and saved clean baseline snapshot `clean-desktop-2026-11-22`.
+
+## Earlier Milestone (2026-11-10)
 - **L1 (`vmcraft-core`)**:
   - Implemented Airgap Isolation (`airgap_set`): Dynamically cuts physical/virtual link cables across adapters 1..4 (`setlinkstateN off`), disables shared clipboard (`clipboard mode disabled`), and blocks drag-and-drop (`draganddrop disabled`).
   - Added Guest Control API: `guest_exec`, `guest_copyto`, and `guest_copyfrom` using native `VBoxManage guestcontrol` without relying on network shares.

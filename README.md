@@ -7,7 +7,9 @@
 
 Pure-Rust ArtCraft Virtual Machine workstation for local virtualization management and agentic tooling. One unified Rust workspace providing an in-process core domain library (L1), a dual-mode human CLI and JSON-RPC Model Context Protocol (MCP) server (L2), and an interactive native egui desktop workstation (L3).
 
-Status: **v0.1.0 (pre-1.0, T2 test floor met; 51 workspace tests)** - L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs (via WSL2), ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation.
+Status: **v0.1.0 (pre-1.0, T2 test floor met; 54 workspace tests; CI green)** - L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs (via WSL2), ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation.
+
+- User Help Guide: [HELP.md](HELP.md)
 
 - Changes: [CHANGELOG.md](CHANGELOG.md)
 - Conversion Dossier: [docs/CONVERSION_DOSSIER.md](docs/CONVERSION_DOSSIER.md)
@@ -64,14 +66,16 @@ Launch via:
 ```
 
 ### Features
-- **Instant Background Discovery**: Automatically polls hypervisors (VirtualBox + Hyper-V), VM list, and host templates upon opening without blocking the UI thread.
-- **Dashboard**: Live multi-hypervisor VM overview table showing VM Name, Provider (`VirtualBox` in amber, `Hyper-V` in cyan), UUID, and instant action buttons (`Select`, `Info`, `Start`, `Stop`), plus an activity log.
-- **VMs Page**: Quick target selector bar, VM configuration form, start/stop/create/delete controls, and detailed hardware inspect output.
+- **Standard Craft Menu Bar & Help Center**: Top menu bar (`Session`, `Edit`, `View`, `Command`, `Window`, `Help`) with `switch_on_hover`, hideable tab strip (`View -> Show Tab Bar` / `Ctrl+B`), switchable status bar (`View -> Status Bar -> Bottom/Top/Off`), `Ctrl+K` Command Palette, `F1` Keyboard Shortcuts modal, and 7-tab Help Center ([HELP.md](HELP.md)).
+- **Theme-Aware Dark & Light UI**: High-contrast dark slate and crisp light themes with rounded cards, live status pills, and `Ctrl+MouseWheel` / `Ctrl+=` / `Ctrl+-` / `Ctrl+1` zoom.
+- **Instant Background Discovery**: Automatically polls hypervisors (VirtualBox + Hyper-V), live VM running states (`RUNNING` / `STOPPED`), and host templates upon opening without blocking the UI thread.
+- **Dashboard**: 4 KPI summary cards (`Total VMs`, `Running Now`, `Selected Target`, `Quick Jump`), searchable/filterable VM table (`All`, `Running`, `VirtualBox`, `Hyper-V`) with live state and provider pills, and a readable `Recent Activity` feed (with collapsible raw JSON).
+- **VMs Page**: Quick target selector, VM provisioning form, structured VM table with live state pills, parsed `Selected VM Details` grid, and an in-GUI **Guest Runner & Clean-Room Linux Craft Test** card (`guest_exec` and `pipeline_naked_install`).
 - **Snapshots Page**: Point-in-time snapshot listing in a structured table, with one-click `Restore` and `Delete` per snapshot.
-- **Network Page**: VirtualBox host-only network interface management (`list`, `create`, `remove`).
-- **Disks Page**: Virtual disk image (`.vdi`) inspection and dynamic provisioning.
+- **Network Page**: VirtualBox host-only network interface management (`list`, `create`, `remove`) rendered in a structured table.
+- **Disks Page**: Virtual disk image (`.vdi`) inspection in a structured table (`State`, `Format`, `Capacity`, `Location`, `UUID`) and dynamic provisioning.
 - **Shot Page**: Framebuffer screenshot capture with live in-app PNG rendering directly inside the GUI.
-- **Sandbox Page**: Safe, isolated 30-second script runner for Python and PowerShell.
+- **Sandbox Page**: Safe, isolated 30-second script runner with a Python (`python`/`py`/`python3` auto-detect) and PowerShell selector and formatted stdout/stderr output.
 - **Detonate Page**: Clean-room detonation and disassembly pipeline under hardware-level airgap. Supports automated snapshotting, keygen explosion, target binary injection, in-guest disassembly, non-executable artifact extraction, and auto-nuke/rollback.
 - **Commands Page**: Interactive ArtCraft command bus catalog and custom command dispatcher.
 - **Help & Safety**: Visual toggle for mutating operations gate.
@@ -176,7 +180,7 @@ vmcraft-mcp firecracker spawn --id "agent-worker-1" --kernel "/vmlinux" --rootfs
 ## Verification & Testing
 
 ```powershell
-# Run full workspace test suite (51 tests)
+# Run full workspace test suite (54 tests)
 cargo test --workspace
 
 # Lint with strict zero-warning policy

@@ -1,4 +1,22 @@
-# Changelog — vmcraft
+# Changelog - vmcraft
+
+## [2026-11-24] Unreleased (post-v0.1.0)
+- L1 (`vmcraft-core`):
+  - `vm_list` now queries `VBoxManage list runningvms` alongside `list vms` and attaches live `state: "running" | "off"` to every VirtualBox VM.
+  - Updated MCP protocol version string to `2026-07-28`.
+- L3 (`vmcraft-app`):
+  - Added 4 Dashboard KPI cards (`Total VMs`, `Running Now`, `Selected Target`, `Quick Jump`), VM search + filter chips (`All`, `Running`, `VirtualBox`, `Hyper-V`), live `RUNNING` / `STOPPED` status pills, and a human-readable `Recent Activity` feed.
+  - Added in-GUI **Guest Runner & Clean-Room Linux Craft Test** card in `VMs` (`GuestExec` + `PipelineNakedInstall`).
+  - Added theme-aware `Palette` for Dark and Light modes, rounded card frames, and removed all hardcoded light-on-light text colors.
+
+## [2026-11-22] v0.1.0 - Standard Craft UI, Real Naked Install Pipeline, CI & 54 Tests
+- Published GitHub release `v0.1.0` (plain exes, NSIS installer, portable zip, `.mcpb`, `SHA256SUMS.txt`).
+- Added `CRAFT_MENU_BAR_STANDARD.md` top menu bar (`Session`, `Edit`, `View`, `Command`, `Window`, `Help` with `switch_on_hover`), hideable tab bar (`View -> Show Tab Bar` / `Ctrl+B`), switchable status bar (`View -> Status Bar -> Bottom/Top/Off`), `Ctrl+K` Command Palette, `F1` Keyboard Shortcuts modal, Licenses/About modals, 7-tab Help Center, and `HELP.md`.
+- Replaced raw JSON dumps in `VMs`, `Network`, `Disks`, `Shot`, and `Swarm` with structured tables, parsed `Selected VM Details`, and collapsible raw JSON output.
+- Replaced fake `Page::Swarm` grid with live `FirecrackerProbe` and `FirecrackerList` process state.
+- Wired `pipeline_naked_install` to real VirtualBox snapshot restore + headless start + `guestcontrol` execution + rollback, and fixed `parse_command` normalization for `pipeline.naked.install`.
+- Fixed `Sandbox` (`python`/`py`/`python3` fallback, `powershell.exe -File`, language selector, and `sandbox_output` formatting).
+- Added `.github/workflows/ci.yml` (`windows-latest` + `ubuntu-latest`) and expanded workspace tests to 54 passing.
 
 ## [2026-11-10] v1.1.0 Firecracker Micro-VM KVM Provider & Sub-10ms Agent Isolation
 - L1 (`vmcraft-core`):

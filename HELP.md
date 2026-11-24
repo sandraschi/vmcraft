@@ -12,18 +12,18 @@ Pure-Rust ArtCraft Virtual Machine workstation (`vmcraft-core` L1, `vmcraft-mcp`
 
 ## 2. Functions
 
-- **Dashboard & VMs**: Multi-hypervisor VM discovery (`VBoxManage` + Hyper-V CIM), hardware inspection, create, start (headless), stop (ACPI), and delete.
+- **Dashboard & VMs**: 4 KPI summary cards, search/filter chips (`All`, `Running`, `VirtualBox`, `Hyper-V`), live `RUNNING` / `STOPPED` status pills (`VBoxManage list runningvms` + Hyper-V CIM), parsed `Selected VM Details`, in-GUI **Guest Runner & Clean-Room Linux Craft Test** (`guest_exec` + `pipeline_naked_install`), and VM create/start/stop/delete.
 - **Snapshots**: List, create, restore, and delete VirtualBox snapshots.
-- **Network & Disks**: Manage VirtualBox host-only interfaces and inspect/provision `.vdi` disk images.
+- **Network & Disks**: Structured tables for VirtualBox host-only interfaces and `.vdi` disk images (`State`, `Format`, `Capacity`, `Location`, `UUID`).
 - **Shot**: Capture live VM framebuffer PNG screenshots and render them inside the GUI.
 - **Detonate**: Clean-room airgapped execution pipeline (`airgap_set`, `guestcontrol`, snapshot pre-capture + unconditional rollback).
 - **Swarm (Firecracker)**: Probe WSL2 `/dev/kvm` and `firecracker` binary presence, list running Firecracker processes, spawn/kill micro-VMs.
-- **Sandbox**: 30-second timeout local subprocess runner for `python`, `powershell`, and `pwsh`.
+- **Sandbox**: 30-second timeout local subprocess runner with a Python (`python`/`py`/`python3`) and PowerShell selector and formatted stdout/stderr output.
 - **Commands (ArtCraft Bus)**: Browse and dispatch all 32 `Command::dispatch` operations.
 
 ## 3. Usage (GUI, CLI & MCP)
 
-- **GUI**: Use the top menu bar (`Session`, `Edit`, `View`, `Command`, `Window`, `Help`) or the hideable single-click tab strip (`View -> Show Tab Bar` / `Ctrl+B`). Press `Ctrl+K` (or `Ctrl+Shift+P`) for the Command Palette, `F1` for Keyboard Shortcuts, and `Ctrl+MouseWheel` to zoom.
+- **GUI**: Use the top menu bar (`Session`, `Edit`, `View`, `Command`, `Window`, `Help`) or the hideable single-click tab strip (`View -> Show Tab Bar` / `Ctrl+B`). Switch the status bar position via `View -> Status Bar` (`Bottom`, `Top`, `Off`). Press `Ctrl+K` (or `Ctrl+Shift+P`) for the Command Palette, `F1` for Keyboard Shortcuts, and `Ctrl+MouseWheel` / `Ctrl+=` / `Ctrl+-` / `Ctrl+1` to zoom.
 - **CLI**:
   ```powershell
   vmcraft-mcp status
