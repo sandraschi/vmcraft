@@ -6,6 +6,7 @@ pub mod creds;
 pub mod error;
 pub mod firecracker;
 pub mod import;
+pub mod iso;
 pub mod llm;
 pub mod pipeline;
 pub mod vm;
@@ -45,6 +46,11 @@ pub const CMD_FIRECRACKER_PROBE: &str = "vmcraft.firecracker_probe";
 pub const CMD_FIRECRACKER_LIST: &str = "vmcraft.firecracker_list";
 pub const CMD_FIRECRACKER_SPAWN: &str = "vmcraft.firecracker_spawn";
 pub const CMD_FIRECRACKER_KILL: &str = "vmcraft.firecracker_kill";
+pub const CMD_ISO_CATALOG: &str = "vmcraft.iso_catalog";
+pub const CMD_ISO_LIST: &str = "vmcraft.iso_list";
+pub const CMD_ISO_VERIFY: &str = "vmcraft.iso_verify";
+pub const CMD_ISO_FETCH: &str = "vmcraft.iso_fetch";
+pub const CMD_ISO_ATTACH: &str = "vmcraft.iso_attach";
 
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -189,6 +195,32 @@ pub enum Command {
     },
     FirecrackerKill {
         vm_id: String,
+        confirm: bool,
+    },
+    IsoCatalog {
+        category: Option<String>,
+    },
+    IsoList {
+        dir: Option<String>,
+    },
+    IsoVerify {
+        path: String,
+        expected_sha256: Option<String>,
+    },
+    IsoFetch {
+        id: Option<String>,
+        url: Option<String>,
+        dest_dir: Option<String>,
+        fido_script: Option<String>,
+        win_version: Option<String>,
+        lang: Option<String>,
+        arch: Option<String>,
+        url_only: bool,
+        confirm: bool,
+    },
+    IsoAttach {
+        vm: String,
+        iso_path: String,
         confirm: bool,
     },
     BridgeEvent {
@@ -338,6 +370,41 @@ pub async fn dispatch(cmd: Command) -> Value {
         Command::FirecrackerKill { vm_id, confirm } => {
             firecracker::firecracker_kill(&vm_id, confirm).await
         }
+        Command::IsoCatalog { category } => iso::iso_catalog(category.as_deref()),
+        Command::IsoList { dir } => iso::iso_list(dir.as_deref()),
+        Command::IsoVerify {
+            path,
+            expected_sha256,
+        } => iso::iso_verify(&path, expected_sha256.as_deref()).await,
+        Command::IsoFetch {
+            id,
+            url,
+            dest_dir,
+            fido_script,
+            win_version,
+            lang,
+            arch,
+            url_only,
+            confirm,
+        } => {
+            iso::iso_fetch(iso::IsoFetchParams {
+                id,
+                url,
+                dest_dir,
+                fido_script,
+                win_version,
+                lang,
+                arch,
+                url_only,
+                confirm,
+            })
+            .await
+        }
+        Command::IsoAttach {
+            vm,
+            iso_path,
+            confirm,
+        } => iso::iso_attach(&vm, &iso_path, confirm).await,
         Command::BridgeEvent { title, summary } => {
             json!({"tool": "bridge.event", "status": "ok", "title": title, "summary": summary})
         }
@@ -641,6 +708,57 @@ pub fn commands_catalog() -> Value {
             "description": "Terminate a running Firecracker micro-VM instance by VM ID",
             "params": {
                 "vm_id": "string",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "iso.catalog",
+            "label": "ISO Catalog",
+            "description": "List curated Linux, UEFI Shell, and external-Fido Windows ISO download entries",
+            "params": {
+                "category": "string (optional: all|linux|uefi|windows)"
+            }
+        },
+        {
+            "id": "iso.list",
+            "label": "List Local ISOs",
+            "description": "Scan local ISO library directory (~/.vmcraft/isos or VMCRAFT_ISO_DIR)",
+            "params": {
+                "dir": "string (optional)"
+            }
+        },
+        {
+            "id": "iso.verify",
+            "label": "Verify ISO SHA-256",
+            "description": "Stream-hash a local ISO and verify against expected SHA-256 or .sha256 sidecar",
+            "params": {
+                "path": "string",
+                "expected_sha256": "string (optional)"
+            }
+        },
+        {
+            "id": "iso.fetch",
+            "label": "Fetch ISO Image",
+            "description": "Download a Linux/UEFI ISO directly over HTTPS (or resolve Windows via external Fido.ps1 with 20h URL cache)",
+            "params": {
+                "id": "string (optional catalog id)",
+                "url": "string (optional https:// URL)",
+                "dest_dir": "string (optional)",
+                "fido_script": "string (optional path to external Fido.ps1)",
+                "win_version": "string (optional, e.g. 'Windows 11')",
+                "lang": "string (optional)",
+                "arch": "string (optional, default: x64)",
+                "url_only": "boolean (default: false)",
+                "confirm": "boolean (default: false)"
+            }
+        },
+        {
+            "id": "iso.attach",
+            "label": "Attach ISO to VM",
+            "description": "Attach a local ISO image to a VirtualBox VM optical drive",
+            "params": {
+                "vm": "string",
+                "iso_path": "string",
                 "confirm": "boolean (default: false)"
             }
         }
@@ -1208,6 +1326,82 @@ pub fn parse_command(id: &str, params: &Value) -> Result<Command, String> {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             Ok(Command::FirecrackerKill { vm_id, confirm })
+        }
+        "iso.catalog" => {
+            let category = params
+                .get("category")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            Ok(Command::IsoCatalog { category })
+        }
+        "iso.list" => {
+            let dir = params
+                .get("dir")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            Ok(Command::IsoList { dir })
+        }
+        "iso.verify" => {
+            let path = params
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let expected_sha256 = params
+                .get("expected_sha256")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            Ok(Command::IsoVerify {
+                path,
+                expected_sha256,
+            })
+        }
+        "iso.fetch" => {
+            let opt_str = |k: &str| {
+                params
+                    .get(k)
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.to_string())
+            };
+            Ok(Command::IsoFetch {
+                id: opt_str("id"),
+                url: opt_str("url"),
+                dest_dir: opt_str("dest_dir"),
+                fido_script: opt_str("fido_script"),
+                win_version: opt_str("win_version"),
+                lang: opt_str("lang"),
+                arch: opt_str("arch"),
+                url_only: params
+                    .get("url_only")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                confirm: params
+                    .get("confirm")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            })
+        }
+        "iso.attach" => {
+            let vm = params
+                .get("vm")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let iso_path = params
+                .get("iso_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let confirm = params
+                .get("confirm")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Ok(Command::IsoAttach {
+                vm,
+                iso_path,
+                confirm,
+            })
         }
         _ => Err(format!("unknown command id '{id}'")),
     }

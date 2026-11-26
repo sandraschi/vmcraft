@@ -84,6 +84,10 @@ enum Top {
         #[command(subcommand)]
         op: FirecrackerOp,
     },
+    Iso {
+        #[command(subcommand)]
+        op: IsoOp,
+    },
     Tools,
     Mcp,
 }
@@ -359,6 +363,57 @@ enum FirecrackerOp {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum IsoOp {
+    /// List curated Linux, UEFI Shell, and external-Fido Windows ISO entries
+    Catalog {
+        #[arg(long)]
+        category: Option<String>,
+    },
+    /// Scan local ISO library directory (~/.vmcraft/isos or VMCRAFT_ISO_DIR)
+    List {
+        #[arg(long)]
+        dir: Option<String>,
+    },
+    /// Stream-compute SHA-256 of a local ISO and verify against expected digest or .sha256 sidecar
+    Verify {
+        #[arg(long)]
+        path: String,
+        #[arg(long)]
+        expected: Option<String>,
+    },
+    /// Resolve or download a Linux/UEFI ISO (or Windows ISO via external Fido.ps1)
+    Fetch {
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        dest_dir: Option<String>,
+        #[arg(long)]
+        fido_script: Option<String>,
+        #[arg(long)]
+        win_version: Option<String>,
+        #[arg(long)]
+        lang: Option<String>,
+        #[arg(long)]
+        arch: Option<String>,
+        #[arg(long, default_value_t = false)]
+        url_only: bool,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+    /// Attach a local ISO file to a VirtualBox VM optical drive
+    Attach {
+        #[arg(long)]
+        vm: String,
+        #[arg(long)]
+        iso: String,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+    },
+}
+
 fn print_json(v: &Value) {
     println!(
         "{}",
@@ -398,7 +453,12 @@ fn tools_list() -> Value {
         {"name": "vmcraft.guest_copyto", "description": "Copy file from host into guest filesystem"},
         {"name": "vmcraft.guest_copyfrom", "description": "Extract file from guest back to host"},
         {"name": "vmcraft.pipeline_detonate", "description": "Clean-room keygen/untrusted detonation, in-guest disassembly, clean extraction, and auto-nuke"},
-        {"name": "vmcraft.pipeline_naked_install", "description": "Automated clean-room consumer install test for repo"}
+        {"name": "vmcraft.pipeline_naked_install", "description": "Automated clean-room consumer install test for repo"},
+        {"name": "vmcraft.iso_catalog", "description": "List curated Linux, UEFI Shell, and external-Fido Windows ISO entries (read-only)"},
+        {"name": "vmcraft.iso_list", "description": "Scan local ISO library directory (~/.vmcraft/isos) (read-only)"},
+        {"name": "vmcraft.iso_verify", "description": "Stream SHA-256 verify a local ISO image (read-only)"},
+        {"name": "vmcraft.iso_fetch", "description": "Resolve URL or download Linux/UEFI/Fido-Windows ISO (needs --yes / allow for download)"},
+        {"name": "vmcraft.iso_attach", "description": "Attach local ISO to a VirtualBox VM optical drive (needs --yes / allow)"}
     ]})
 }
 
@@ -752,6 +812,66 @@ async fn call_tool(name: &str, args: &Value) -> Value {
             })
             .await
         }
+        "vmcraft.iso_catalog" | "iso_catalog" => {
+            let category = s("category");
+            dispatch(Command::IsoCatalog {
+                category: if category.is_empty() {
+                    None
+                } else {
+                    Some(category)
+                },
+            })
+            .await
+        }
+        "vmcraft.iso_list" | "iso_list" => {
+            let dir = s("dir");
+            dispatch(Command::IsoList {
+                dir: if dir.is_empty() { None } else { Some(dir) },
+            })
+            .await
+        }
+        "vmcraft.iso_verify" | "iso_verify" => {
+            let expected = s("expected_sha256");
+            dispatch(Command::IsoVerify {
+                path: s("path"),
+                expected_sha256: if expected.is_empty() {
+                    None
+                } else {
+                    Some(expected)
+                },
+            })
+            .await
+        }
+        "vmcraft.iso_fetch" | "iso_fetch" => {
+            let opt = |k: &str| {
+                let v = s(k);
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v)
+                }
+            };
+            dispatch(Command::IsoFetch {
+                id: opt("id"),
+                url: opt("url"),
+                dest_dir: opt("dest_dir"),
+                fido_script: opt("fido_script"),
+                win_version: opt("win_version"),
+                lang: opt("lang"),
+                arch: opt("arch"),
+                url_only: b(args, "url_only"),
+                confirm: b(args, "confirm") || b(args, "yes"),
+            })
+            .await
+        }
+        "vmcraft.iso_attach" | "iso_attach" => {
+            dispatch(Command::IsoAttach {
+                vm: s("vm"),
+                iso_path: s("iso_path"),
+                confirm: b(args, "confirm") || b(args, "yes"),
+            })
+            .await
+        }
         _ => {
             json!({"content": [{"type": "text", "text": format!("unknown tool: {name}")}], "isError": true})
         }
@@ -1043,6 +1163,51 @@ async fn main() {
             FirecrackerOp::Kill { id, yes } => print_json(
                 &dispatch(Command::FirecrackerKill {
                     vm_id: id,
+                    confirm: yes,
+                })
+                .await,
+            ),
+        },
+        Some(Top::Iso { op }) => match op {
+            IsoOp::Catalog { category } => {
+                print_json(&dispatch(Command::IsoCatalog { category }).await)
+            }
+            IsoOp::List { dir } => print_json(&dispatch(Command::IsoList { dir }).await),
+            IsoOp::Verify { path, expected } => print_json(
+                &dispatch(Command::IsoVerify {
+                    path,
+                    expected_sha256: expected,
+                })
+                .await,
+            ),
+            IsoOp::Fetch {
+                id,
+                url,
+                dest_dir,
+                fido_script,
+                win_version,
+                lang,
+                arch,
+                url_only,
+                yes,
+            } => print_json(
+                &dispatch(Command::IsoFetch {
+                    id,
+                    url,
+                    dest_dir,
+                    fido_script,
+                    win_version,
+                    lang,
+                    arch,
+                    url_only,
+                    confirm: yes,
+                })
+                .await,
+            ),
+            IsoOp::Attach { vm, iso, yes } => print_json(
+                &dispatch(Command::IsoAttach {
+                    vm,
+                    iso_path: iso,
                     confirm: yes,
                 })
                 .await,

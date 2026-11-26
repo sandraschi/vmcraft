@@ -412,6 +412,7 @@ enum Page {
     Snapshots,
     Network,
     Disks,
+    Isos,
     Shot,
     Detonate,
     Swarm,
@@ -428,6 +429,7 @@ impl Page {
             Page::Snapshots => "Snapshots",
             Page::Network => "Network",
             Page::Disks => "Disks",
+            Page::Isos => "ISOs",
             Page::Shot => "Shot",
             Page::Detonate => "Detonate",
             Page::Swarm => "Swarm",
@@ -655,6 +657,7 @@ pub struct VmApp {
     naked_repo: String,
     naked_snapshot: String,
     naked_linux: bool,
+    iso_state: crate::iso_ui::IsoUiState,
 }
 
 impl VmApp {
@@ -744,6 +747,7 @@ impl VmApp {
             naked_repo: "sandraschi/vmcraft".to_string(),
             naked_snapshot: "clean-desktop-2026-11-22".to_string(),
             naked_linux: true,
+            iso_state: crate::iso_ui::IsoUiState::new(),
         };
 
         // Auto-fetch on startup so VM list and status are ready immediately
@@ -755,6 +759,12 @@ impl VmApp {
         self.spawn_status();
         self.spawn_vms();
         self.spawn_host_info();
+        self.spawn_command(
+            "ISO List",
+            Command::IsoList {
+                dir: Some(self.iso_state.dest_dir.clone()),
+            },
+        );
     }
 
     fn spawn_status(&mut self) {
@@ -959,6 +969,21 @@ impl VmApp {
                     } else if title == "Disk List" {
                         let raw = value.get("raw").and_then(|v| v.as_str()).unwrap_or("");
                         self.disks = parse_disk_blocks(raw);
+                    } else if matches!(
+                        title.as_str(),
+                        "ISO List" | "ISO Fetch" | "ISO Resolve URL" | "ISO Verify" | "ISO Attach"
+                    ) {
+                        self.iso_state.apply_response(&title, &value);
+                        if title == "ISO Fetch"
+                            && value.get("status").and_then(|v| v.as_str()) == Some("ok")
+                        {
+                            self.spawn_command(
+                                "ISO List",
+                                Command::IsoList {
+                                    dir: Some(self.iso_state.dest_dir.clone()),
+                                },
+                            );
+                        }
                     } else if title == "Sandbox Run" {
                         self.sandbox_output = format_sandbox_output(&value);
                     } else if title == "Guest Exec" || title == "Naked Test" {
@@ -1330,6 +1355,7 @@ impl eframe::App for VmApp {
                     Page::Snapshots,
                     Page::Network,
                     Page::Disks,
+                    Page::Isos,
                     Page::Shot,
                     Page::Detonate,
                     Page::Swarm,
@@ -1412,6 +1438,7 @@ impl eframe::App for VmApp {
                     Page::Snapshots,
                     Page::Network,
                     Page::Disks,
+                    Page::Isos,
                     Page::Shot,
                     Page::Detonate,
                     Page::Swarm,
@@ -2217,6 +2244,40 @@ impl eframe::App for VmApp {
                         });
                     });
             }
+            Page::Isos => {
+                let colors = crate::iso_ui::IsoThemeColors {
+                    card_bg: pal.card_bg,
+                    card_border: pal.card_border,
+                    text_primary: pal.text_primary,
+                    text_muted: pal.text_muted,
+                    accent: pal.accent,
+                    ok_bg: pal.ok_bg,
+                    ok_fg: pal.ok_fg,
+                    warn_bg: pal.warn_bg,
+                    warn_fg: pal.warn_fg,
+                    info_bg: pal.info_bg,
+                    info_fg: pal.info_fg,
+                };
+                let can_confirm = self.confirm();
+                let actions = crate::iso_ui::render_iso_page(
+                    ui,
+                    &mut self.iso_state,
+                    &colors,
+                    &self.vm_name,
+                    can_confirm,
+                );
+                for act in actions {
+                    match act {
+                        crate::iso_ui::IsoUiAction::Dispatch { title, cmd } => {
+                            self.spawn_command(title, *cmd);
+                        }
+                        crate::iso_ui::IsoUiAction::CreateVmFromEntry { ostype } => {
+                            self.ostype = ostype;
+                            self.page = Page::Vms;
+                        }
+                    }
+                }
+            }
             Page::Shot => {
                 ui.heading("VM Screenshot Capture");
                 ui.horizontal(|ui| {
@@ -3007,6 +3068,7 @@ mod tests {
             naked_repo: "sandraschi/vmcraft".to_string(),
             naked_snapshot: "clean-desktop-2026-11-22".to_string(),
             naked_linux: true,
+            iso_state: crate::iso_ui::IsoUiState::new(),
         };
 
         let sample_json = serde_json::json!({
@@ -3103,6 +3165,7 @@ mod tests {
             naked_repo: "sandraschi/vmcraft".to_string(),
             naked_snapshot: "clean-desktop-2026-11-22".to_string(),
             naked_linux: true,
+            iso_state: crate::iso_ui::IsoUiState::new(),
         };
 
         let _ = tx.send(AppMessage::CommandResult {
@@ -3239,6 +3302,7 @@ mod tests {
             naked_repo: "sandraschi/vmcraft".to_string(),
             naked_snapshot: "clean-desktop-2026-11-22".to_string(),
             naked_linux: true,
+            iso_state: crate::iso_ui::IsoUiState::new(),
         };
 
         let _ = tx.send(AppMessage::CommandResult {

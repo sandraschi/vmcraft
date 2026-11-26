@@ -17,10 +17,11 @@ todo = "deny"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 clap = { version = "4", features = ["derive"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "io-std", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "io-std", "io-util", "fs"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 chrono = "0.4"
 uuid = { version = "1", features = ["v4", "v5"] }
 eframe = "0.37"
 keyring = "4"
 serde_yaml = "0.9"
+sha2 = "0.10"

@@ -13,6 +13,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 serde_yaml = { workspace = true }
 reqwest = { workspace = true }
+sha2 = { workspace = true }
 
 [lints]
 workspace = true

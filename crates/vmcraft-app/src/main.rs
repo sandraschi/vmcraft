@@ -1,6 +1,7 @@
 use eframe::egui;
 
 mod app;
+mod iso_ui;
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
