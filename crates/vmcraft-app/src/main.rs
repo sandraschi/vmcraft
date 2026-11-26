@@ -1,6 +1,7 @@
 use eframe::egui;
 
 mod app;
+mod help_ui;
 mod iso_ui;
 
 fn main() -> eframe::Result<()> {

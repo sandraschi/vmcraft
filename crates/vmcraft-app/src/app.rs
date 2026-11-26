@@ -373,30 +373,7 @@ fn filter_palette_commands(query: &str) -> Vec<(String, String, String)> {
         .collect()
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum HelpTab {
-    GetStarted,
-    Functions,
-    Usage,
-    Tips,
-    Safety,
-    Planned,
-    OtherCrafts,
-}
-
-impl HelpTab {
-    fn label(self) -> &'static str {
-        match self {
-            HelpTab::GetStarted => "Get Started",
-            HelpTab::Functions => "Functions",
-            HelpTab::Usage => "Usage (GUI, CLI & MCP)",
-            HelpTab::Tips => "Tips & Tricks",
-            HelpTab::Safety => "Pitfalls & Safety",
-            HelpTab::Planned => "Planned Extensions",
-            HelpTab::OtherCrafts => "Other Crafts",
-        }
-    }
-}
+use crate::help_ui::HelpTab;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum StatusBarPos {
@@ -2759,86 +2736,16 @@ impl eframe::App for VmApp {
                 });
             }
             Page::Help => {
-                ui.heading("vmcraft Help Center");
-                ui.horizontal_wrapped(|ui| {
-                    for tab in [
-                        HelpTab::GetStarted,
-                        HelpTab::Functions,
-                        HelpTab::Usage,
-                        HelpTab::Tips,
-                        HelpTab::Safety,
-                        HelpTab::Planned,
-                        HelpTab::OtherCrafts,
-                    ] {
-                        let selected = self.help_tab == tab;
-                        let btn = if selected {
-                            ui.button(RichText::new(tab.label()).strong().color(ACCENT_CYAN))
-                        } else {
-                            ui.button(tab.label())
-                        };
-                        if btn.clicked() {
-                            self.help_tab = tab;
-                        }
-                    }
-                });
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| match self.help_tab {
-                    HelpTab::GetStarted => {
-                        ui.label(RichText::new("1. Launch & Discovery").strong());
-                        ui.label("Status auto-polls VirtualBox and Hyper-V on startup. Click Refresh (F5) anytime.");
-                        ui.label(RichText::new("2. Select a VM").strong());
-                        ui.label("Open Dashboard and click Select on any VM (e.g. ubu-2404-lts) to target it across tabs.");
-                        ui.label(RichText::new("3. Create a Baseline Snapshot").strong());
-                        ui.label("Open Snapshots, enter a name (e.g. clean-base), enable 'allow mutate', and click Create.");
-                        ui.label(RichText::new("4. Run & Inspect").strong());
-                        ui.label("Use VMs, Shot, Detonate, Swarm, Sandbox, or Commands (Ctrl+K) to operate the guest.");
-                        ui.label(RichText::new("5. Roll Back").strong());
-                        ui.label("Restore your baseline snapshot when done to keep the VM pristine.");
-                    }
-                    HelpTab::Functions => {
-                        ui.label("• Dashboard & VMs: VirtualBox 7+ and Hyper-V discovery, inspect, start, stop, create, delete.");
-                        ui.label("• Snapshots: List, create, restore, and delete VirtualBox snapshots.");
-                        ui.label("• Network & Disks: Host-only interfaces and .vdi image inspection/creation.");
-                        ui.label("• Shot: Live framebuffer PNG capture rendered in-app.");
-                        ui.label("• Detonate: Airgap link severing + guestcontrol execution + snapshot rollback.");
-                        ui.label("• Swarm: WSL2 /dev/kvm Firecracker probe, process list, spawn, and kill.");
-                        ui.label("• Sandbox: Isolated 30s Python/PowerShell runner.");
-                        ui.label("• Commands: 32-operation ArtCraft Command Bus explorer and dispatcher.");
-                    }
-                    HelpTab::Usage => {
-                        ui.label(RichText::new("GUI").strong());
-                        ui.label("Use the top menu bar (Session, Edit, View, Command, Window, Help) or tab bar. Ctrl+K opens the Command Palette; F1 opens Keyboard Shortcuts.");
-                        ui.separator();
-                        ui.label(RichText::new("CLI (vmcraft-mcp)").strong());
-                        ui.monospace("vmcraft-mcp status\nvmcraft-mcp vm list\nvmcraft-mcp vm info --vm ubu-2404-lts\nvmcraft-mcp pipeline naked-test --repo owner/repo --baseline ubu-2404-lts --snapshot clean-desktop-2026-11-22 --user user --pass user --linux --yes");
-                        ui.separator();
-                        ui.label(RichText::new("MCP stdio").strong());
-                        ui.monospace("vmcraft-mcp mcp");
-                    }
-                    HelpTab::Tips => {
-                        ui.label("• Always create a clean snapshot before running untrusted binaries or installers.");
-                        ui.label("• Use Ctrl+K to search and populate any of the 32 Command Bus verbs immediately.");
-                        ui.label("• In CLI `guest exec`, pass hyphenated guest args with `=` syntax: `--args=-lc`.");
-                        ui.label("• Press Ctrl+1 (or View -> Reset Zoom) to reset UI scaling to 100%.");
-                    }
-                    HelpTab::Safety => {
-                        ui.label(RichText::new("Mutating Operations Safety Gate").strong());
-                        ui.label("State-changing verbs (vm create/start/stop/delete, snapshot create/restore/delete, network create/remove, airgap, guest.exec, pipeline.detonate, pipeline.naked_install, firecracker spawn/kill) require checking 'allow mutate' in the toolbar, passing `--yes`, or setting `VMCRAFT_ALLOW_MUTATE=1`.");
-                        ui.separator();
-                        ui.label("• Guest Additions must be running inside the guest for `guestcontrol` and `pipeline.naked_install`.");
-                        ui.label("• Firecracker commands require `wsl.exe` with `/dev/kvm` and `firecracker` installed inside WSL2.");
-                    }
-                    HelpTab::Planned => {
-                        ui.label("• Native QEMU/KVM (Linux) and Apple Virtualization.framework (macOS) providers.");
-                        ui.label("• Live GUI `--control PORT` bridge.");
-                        ui.label("• Migrate `vmcraft-core/src/llm.rs` to shared `craft-ai-core`.");
-                    }
-                    HelpTab::OtherCrafts => {
-                        ui.label("• devcraft: Fleet orchestration and clean-room `naked-test` consumer install verification.");
-                        ui.label("• wincraft: Windows host diagnostics; vmcraft handles VM/hypervisor isolation.");
-                        ui.label("• craft-launcher: Launches and manages installed Craft workstations.");
-                    }
-                });
+                let colors = crate::help_ui::HelpThemeColors {
+                    card_bg: pal.card_bg,
+                    card_border: pal.card_border,
+                    text_primary: pal.text_primary,
+                    text_muted: pal.text_muted,
+                    accent: pal.accent,
+                    tab_active_bg: pal.tab_active_bg,
+                    warn_fg: pal.warn_fg,
+                };
+                crate::help_ui::render_help_page(ui, &mut self.help_tab, &colors);
             }
         }
 

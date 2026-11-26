@@ -7,7 +7,7 @@
 
 Pure-Rust ArtCraft Virtual Machine workstation for local virtualization management and agentic tooling. One unified Rust workspace providing an in-process core domain library (L1), a dual-mode human CLI and JSON-RPC Model Context Protocol (MCP) server (L2), and an interactive native egui desktop workstation (L3).
 
-Status: **v0.1.0 (pre-1.0, T2 test floor met; 54 workspace tests; CI green)** - L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs (via WSL2), ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation.
+Status: **v0.1.0 (pre-1.0, T2 test floor met; 60 workspace tests; CI green)** - L1 core + L2 CLI/MCP + L3 egui desktop app, multi-hypervisor VirtualBox 7+, Hyper-V, and Firecracker KVM Micro-VMs (via WSL2), Linux/UEFI/Fido ISO Library & Fetcher, ArtCraft Command Bus, Clean-Room Detonation Pipeline & Airgap Isolation.
 
 - User Help Guide: [HELP.md](HELP.md)
 
@@ -31,11 +31,11 @@ Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH)
 
 ## Architecture
 
-| Crate | Layer | Purpose |
-|---|---|---|
-| `crates/vmcraft-core` | L1 | In-process command dispatch bus (`Command::dispatch`), ArtCraft command bus registry (`commands_catalog`, `describe_command`, `parse_command`), VBoxManage orchestration, Hyper-V CIM probe, ephemeral sandbox execution, strict input validators. |
-| `crates/vmcraft-mcp` | L2 | Binary providing human CLI subcommands (`commands --json`, `describe`, `run`, `batch`, `vm`, `hyperv`, `snapshot`, etc.) and standard Model Context Protocol (MCP) JSON-RPC stdio. Dual-aliased to support both modern `vmcraft.*` names and legacy portmanteaus (`vm_management`, `snapshot_management`, `hyperv_management`, etc.). |
-| `crates/vmcraft-app` | L3 | Native eframe/egui desktop application with 11 tabs (`Dashboard`, `VMs`, `Snapshots`, `Network`, `Disks`, `Shot`, `Detonate`, `Swarm`, `Sandbox`, `Commands`, `Help`), non-blocking asynchronous message passing (`mpsc::channel`), live multi-hypervisor VM table, snapshot controls, in-app framebuffer image viewer, command bus explorer, and safety gating. |
+| Crate | Layer | Purpose | Docs |
+|---|---|---|---|
+| `crates/vmcraft-core` | L1 | In-process command dispatch bus (`Command::dispatch`), ArtCraft command bus registry (`commands_catalog`, `describe_command`, `parse_command`), VBoxManage orchestration, Hyper-V CIM probe, Linux/UEFI/Fido ISO catalog & SHA-256 fetcher (`iso.rs`), ephemeral sandbox execution, strict input validators. | [crates/vmcraft-core/README.md](crates/vmcraft-core/README.md) |
+| `crates/vmcraft-mcp` | L2 | Binary providing human CLI subcommands (`commands --json`, `describe`, `run`, `batch`, `vm`, `hyperv`, `snapshot`, `iso`, etc.) and standard Model Context Protocol (MCP) JSON-RPC stdio. Dual-aliased to support both modern `vmcraft.*` names and legacy portmanteaus (`vm_management`, `snapshot_management`, `hyperv_management`, etc.). | [crates/vmcraft-mcp/README.md](crates/vmcraft-mcp/README.md) |
+| `crates/vmcraft-app` | L3 | Native eframe/egui desktop application with 12 tabs (`Dashboard`, `VMs`, `Snapshots`, `Network`, `Disks`, `ISOs`, `Shot`, `Detonate`, `Swarm`, `Sandbox`, `Commands`, `Help`), non-blocking asynchronous message passing (`mpsc::channel`), live multi-hypervisor VM table, ISO library & fetcher, snapshot controls, in-app framebuffer image viewer, command bus explorer, and safety gating. | [crates/vmcraft-app/README.md](crates/vmcraft-app/README.md) |
 
 ---
 
@@ -46,7 +46,8 @@ Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH)
 | VirtualBox 7+ lifecycle (`vm_list`, `vm_info`, `vm_create`, `vm_start`, `vm_stop`, `vm_delete`) | Implemented | Shells out to `VBoxManage`; mutating ops gated behind `--yes` / `VMCRAFT_ALLOW_MUTATE=1`. |
 | Snapshots, Host-Only Networks, `.vdi` Disks, Framebuffer Screenshots | Implemented | `snapshot_*`, `network_*`, `disk_*`, `vm_shot` with in-app PNG preview. |
 | Hyper-V discovery & start/stop (`hyperv_list`, `hyperv_start`, `hyperv_stop`) | Implemented | Windows-only via PowerShell CIM; returns `status: down` when absent. |
-| ArtCraft Command Bus (`commands_catalog`, `describe_command`, `parse_command`, `dispatch`) | Implemented | 32 cataloged operations shared across L1/L2/L3. |
+| ArtCraft Command Bus (`commands_catalog`, `describe_command`, `parse_command`, `dispatch`) | Implemented | 37 cataloged operations shared across L1/L2/L3. |
+| Linux, UEFI Shell & External-Fido Windows ISO Library (`iso_catalog`, `iso_list`, `iso_verify`, `iso_fetch`, `iso_attach`) | Implemented | Curated Linux + UEFI Shell HTTPS streaming fetcher with SHA-256 sidecars, VirtualBox optical attach, and optional external `Fido.ps1` Windows URL resolver with 20h cache (GPLv3 code never bundled). |
 | Ephemeral Sandbox (`sandbox_run`) | Implemented | 30s timeout local subprocess runner for `python` / `powershell` / `pwsh`. |
 | Airgap & Guest Control (`airgap_set`, `guest_exec`, `guest_copyto`, `guest_copyfrom`) | Implemented | Uses `VBoxManage` link-state / clipboard / DnD disablement and `guestcontrol`. |
 | Clean-Room Detonation & Naked Install (`pipeline_detonate`, `pipeline_naked_install`) | Partial | Implemented over VirtualBox `guestcontrol`; requires pre-configured baseline VM + Guest Additions. |
@@ -74,6 +75,7 @@ Launch via:
 - **Snapshots Page**: Point-in-time snapshot listing in a structured table, with one-click `Restore` and `Delete` per snapshot.
 - **Network Page**: VirtualBox host-only network interface management (`list`, `create`, `remove`) rendered in a structured table.
 - **Disks Page**: Virtual disk image (`.vdi`) inspection in a structured table (`State`, `Format`, `Capacity`, `Location`, `UUID`) and dynamic provisioning.
+- **ISOs Page**: Curated Linux (Alpine, Ubuntu, Debian, Fedora, Arch), UEFI Shell 2.2 (Release/Debug), and optional external-Fido Windows ISO catalog with category filters, live search, streaming HTTPS download + SHA-256 verification, and one-click attach to the selected VirtualBox VM.
 - **Shot Page**: Framebuffer screenshot capture with live in-app PNG rendering directly inside the GUI.
 - **Sandbox Page**: Safe, isolated 30-second script runner with a Python (`python`/`py`/`python3` auto-detect) and PowerShell selector and formatted stdout/stderr output.
 - **Detonate Page**: Clean-room detonation and disassembly pipeline under hardware-level airgap. Supports automated snapshotting, keygen explosion, target binary injection, in-guest disassembly, non-executable artifact extraction, and auto-nuke/rollback.
@@ -114,6 +116,7 @@ All tools are dual-aliased to ensure 100% backward compatibility with legacy too
 - `vmcraft.pipeline_detonate` (Untrusted keygen explosion, in-guest disassembly under airgap, clean extraction, and auto-rollback)
 - `vmcraft.pipeline_naked_install` (Clean baseline consumer install verification)
 - `vmcraft.firecracker_probe`, `vmcraft.firecracker_list`, `vmcraft.firecracker_spawn`, `vmcraft.firecracker_kill` (Sub-10ms KVM micro-VMs)
+- `vmcraft.iso_catalog`, `vmcraft.iso_list`, `vmcraft.iso_verify`, `vmcraft.iso_fetch`, `vmcraft.iso_attach` (Curated Linux/UEFI/Fido ISO catalog, local library scanner, streaming SHA-256 verifier, HTTPS fetcher, and VirtualBox optical attach)
 
 ---
 
@@ -165,6 +168,13 @@ vmcraft-mcp firecracker probe
 
 # Spawn a dedicated sub-10ms ephemeral micro-VM
 vmcraft-mcp firecracker spawn --id "agent-worker-1" --kernel "/vmlinux" --rootfs "/rootfs.ext4" --yes
+
+# Browse curated Linux & UEFI Shell ISOs, download with SHA-256 sidecar, and attach to a VM
+vmcraft-mcp iso catalog --category linux
+vmcraft-mcp iso fetch --id uefi-shell-2.2-release --yes
+vmcraft-mcp iso list
+vmcraft-mcp iso verify --path "$env:USERPROFILE\.vmcraft\isos\UEFI-Shell-2.2-24H2-RELEASE.iso"
+vmcraft-mcp iso attach --vm "ubu-2404-lts" --iso "$env:USERPROFILE\.vmcraft\isos\UEFI-Shell-2.2-24H2-RELEASE.iso" --yes
 ```
 
 ---
@@ -180,7 +190,7 @@ vmcraft-mcp firecracker spawn --id "agent-worker-1" --kernel "/vmlinux" --rootfs
 ## Verification & Testing
 
 ```powershell
-# Run full workspace test suite (54 tests)
+# Run full workspace test suite (60 tests)
 cargo test --workspace
 
 # Lint with strict zero-warning policy
