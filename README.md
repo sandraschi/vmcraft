@@ -19,7 +19,7 @@ Status: **v0.1.0 (pre-1.0, T2 test floor met; 60 workspace tests; CI green)** - 
 
 ## Install
 
-Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
+Tell Claude, Cursor, Antigravity, or OpenCode: **Install vmcraft from github sandraschi.**
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
